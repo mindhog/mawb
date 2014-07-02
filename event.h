@@ -2,6 +2,7 @@
 #ifndef awb_event_h_
 #define awb_event_h_
 
+#include <vector>
 #include <spug/RCBase.h>
 #include <spug/RCPtr.h>
 
@@ -121,6 +122,24 @@ class NoteOff : public NoteEvent {
         return new NoteOff(time, channel, note);
     }
 };
+
+// A sequence of midi events.
+class Track : public spug::RCBase {
+    private:
+        typedef std::vector<EventPtr> EventVec;
+        EventVec events;
+
+    public:
+
+        // Add a new event.  The event must have a time later than the last
+        // event already in the track.
+        void add(Event *event);
+
+        EventVec::iterator begin() { return events.begin(); }
+        EventVec::iterator end() { return events.end(); }
+};
+
+SPUG_RCPTR(Track);
 
 }  // namespace awb
 

@@ -1,5 +1,7 @@
 #include "event.h"
 
+#include <spug/check.h>
+
 using namespace awb;
 
 void NoteOn::formatTo(std::ostream &out) const {
@@ -12,3 +14,10 @@ void NoteOff::formatTo(std::ostream &out) const {
         << ")";
 }
 
+void Track::add(Event *event) {
+    SPUG_CHECK(!events.size() || event->time >= events.back()->time,
+               "Adding event " << *event <<
+               " which is earlier than the last event on the track (" <<
+               *events.back() << ")"
+               );
+}
