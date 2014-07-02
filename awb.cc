@@ -7,6 +7,7 @@
 
 #include "alsa.h"
 #include "engine.h"
+#include "event.h"
 
 namespace spug {
     SPUG_RCPTR(Reactor);
@@ -135,16 +136,21 @@ class Listener : public Reactable {
 
 int main(int argc, const char **argv) {
     try {
+        TimeMaster timeMaster;
+        timeMaster.setPPB(96);
+        timeMaster.setBPM(120);
+
         // Create the sequencer.
         Sequencer sequencer(SND_SEQ_OPEN_INPUT | SND_SEQ_OPEN_OUTPUT, 0);
-        DebugDispatcher dispatcher;
+        EventDispatcherPtr dispatcher =
+            new InputDispatcher(&timeMaster, 0, new DebugDispatcher());
 
         Port readport = sequencer.makeReadPort("mawb");
         Port writeport = sequencer.makeWritePort("mawb");
 
         ReactorPtr reactor = Reactor::createReactor();
         reactor->addReactable(new Listener(8193));
-        reactor->addReactable(new AlsaReactable(sequencer, &dispatcher));
+        reactor->addReactable(new AlsaReactable(sequencer, dispatcher.get()));
 
         cerr << "AWB daemon started." << endl;
         reactor->run();
