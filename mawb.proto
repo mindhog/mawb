@@ -1,0 +1,28 @@
+
+package mawb;
+
+message InputDisp {
+    optional string id = 1;
+    optional int32 output = 2;
+}
+
+message FluidSynthDisp {
+    optional string id = 1;
+    optional string sound_font = 2;
+}
+
+message Config {
+    repeated InputDisp input_disp = 1;
+    repeated FluidSynthDisp fluid_disp = 2;
+}
+
+
+message RPC {
+    // Begin Recording. - create a record track, add it to an input.
+
+    // Add nodes to an existing configuration.
+    repeated Config add_nodes = 1;
+
+    // Test function.  Echoes the text to the console.
+    repeated string echo = 2;
+}
