@@ -1,5 +1,7 @@
 #include <iostream>
 
+#include <google/protobuf/io/coded_stream.h>
+
 #include "spug/RCPtr.h"
 #include "spug/Reactable.h"
 #include "spug/Reactor.h"
@@ -7,14 +9,16 @@
 
 #include "alsa.h"
 #include "engine.h"
-#include "fluid.h"
 #include "event.h"
+#include "fluid.h"
+#include "mawb.pb.h"
 
 namespace spug {
     SPUG_RCPTR(Reactor);
 }
 
 using namespace awb;
+using namespace google::protobuf::io;
 using namespace std;
 using namespace spug;
 
@@ -38,9 +42,42 @@ class ConnectionHandler : public Reactable {
             );
         }
 
-        void processMessage() {
-            cerr << "got data: " << inData << endl;
-            inData = "";
+        bool processEcho(const string &message) {
+            cout << "Echo: " << message << endl;
+        }
+
+        // Processes the message, returns 'true' if the message is so far
+        // still viable, false if the reactor should terminate the connection.
+        bool processMessage() {
+            // Make sure we have at least 4 bytes, which will give us the
+            // length of the payload.
+            while (inData.size() >= 4) {
+
+                // Get the size of the data.
+                CodedInputStream src(
+                    reinterpret_cast<const uint8 *>(inData.data()),
+                    inData.size()
+                );
+                uint32 size;
+                if (!src.ReadLittleEndian32(&size))
+                    return false;
+
+                // Make sure we have enough data.
+                if (inData.size() < size + 4)
+                    return true;
+
+                // Process all of the messages.
+                mawb::RPC rpc;
+                rpc.ParseFromString(inData.substr(4));
+                if (rpc.echo_size()) {
+                    for (int i = 0; i < rpc.echo_size(); ++i)
+                        processEcho(rpc.echo(i));
+                }
+
+                // Truncate the used portion of the buffer.
+                inData = inData.substr(size);
+            }
+            return true;
         }
 
         virtual void handleRead(Reactor &reactor) {
