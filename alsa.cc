@@ -63,6 +63,10 @@ EventPtr Sequencer::getEvent() const {
     }
 }
 
+bool Sequencer::hasEvent() const {
+    return snd_seq_event_input_pending(seq, 1);
+}
+
 int Sequencer::handle() {
     pollfd pfds;
     int rc = snd_seq_poll_descriptors(seq, &pfds, 1, POLLIN | POLLOUT);
@@ -72,9 +76,11 @@ int Sequencer::handle() {
 }
 
 void AlsaReactable::handleRead(spug::Reactor &reactor) {
-    EventPtr event = seq.getEvent();
-    if (event)
-        dispatcher->onEvent(event.get());
-    else
-        cerr << "got null event" << endl;
+    while (seq.hasEvent()) {
+        EventPtr event = seq.getEvent();
+        if (event)
+            dispatcher->onEvent(event.get());
+        else
+            cerr << "got null event" << endl;
+    }
 }
