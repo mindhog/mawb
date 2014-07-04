@@ -7,6 +7,7 @@
 
 #include "alsa.h"
 #include "engine.h"
+#include "fluid.h"
 #include "event.h"
 
 namespace spug {
@@ -142,11 +143,17 @@ int main(int argc, const char **argv) {
 
         // Create the sequencer.
         Sequencer sequencer(SND_SEQ_OPEN_INPUT | SND_SEQ_OPEN_OUTPUT, 0);
-        EventDispatcherPtr dispatcher =
-            new InputDispatcher(&timeMaster, 0, new DebugDispatcher());
-
         Port readport = sequencer.makeReadPort("mawb");
         Port writeport = sequencer.makeWritePort("mawb");
+
+        // Set up the input chain: Alsa port -> InputDispatcher ->
+        // FluidSynthDispatcher.
+        // All of this stuff should be set up from the persistent state or
+        // from the RPC interface.
+        FluidSynthDispatcherPtr fs = new FluidSynthDispatcher();
+        fs->loadFont("/usr/share/sounds/sf2/FluidR3_GM.sf2", true);
+        EventDispatcherPtr dispatcher =
+            new InputDispatcher(&timeMaster, 0, fs.get());
 
         ReactorPtr reactor = Reactor::createReactor();
         reactor->addReactable(new Listener(8193));

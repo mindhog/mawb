@@ -76,6 +76,9 @@ class Sequencer {
     // Get the next event from the sequencer.
     EventPtr getEvent() const;
 
+    // Returns true if there are events pending on the sequencer.
+    bool hasEvent() const;
+
     int handle();
 
 };
