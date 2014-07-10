@@ -1,11 +1,15 @@
 #ifndef awb_engine_h_
 #define awb_engine_h_
 
+#include <vector>
+
 #include <spug/RCBase.h>
 #include <spug/RCPtr.h>
+#include <spug/Runnable.h>
 #include <spug/Time.h>
 
 #include "awb_types.h"
+#include "mawb.pb.h"
 
 namespace spug {
     class Reactor;
@@ -31,6 +35,7 @@ class DebugDispatcher : public EventDispatcher {
         virtual void onEvent(Event *event);
 };
 
+SPUG_RCPTR(InputDispatcher);
 
 // Processes input and optionally records it, dispatching events to an
 // optional output dispatcher.
@@ -53,7 +58,19 @@ class InputDispatcher : public EventDispatcher {
 
         void setConsumer(EventDispatcher *consumer);
 
+        EventDispatcher *getConsumer() const { return consumer.get(); }
+
         void setRecordTrack(Track *track);
+
+        /**
+         * Returns the current record track and releases ownership of it.
+         */
+        TrackPtr releaseTrack();
+
+        /**
+         * Creates a track, initiating event recording.
+         */
+        void beginRecording();
 };
 
 // The TimeMaster keeps track of the current time as an offset of ticks since
@@ -77,10 +94,14 @@ class TimeMaster {
 
         // Returns the current time as ticks since the beginning of the
         // session.
-        uint32 getTicks() const;
+        uint32 getTicks();
 
-        // Reset the current time.
-        void reset();
+        // Converts the specified number of ticks to a TimeDelta for the
+        // current BPM and PPB.
+        spug::TimeDelta ticksAsTimeDelta(uint32 ticks) const;
+
+        // Set the current time to the specified value.
+        void setTicks(uint32 time);
 
         // Set the current tempo.
         void setBPM(uint32 bpm) {
@@ -96,20 +117,62 @@ class TimeMaster {
 };
 
 // The controller manages all events for MAWB.
-class Controller {
+class Controller : public spug::Runnable {
 
     private:
         spug::Reactor &reactor;
-        enum State {
-            idle,
-            play,
-            record
+        TimeMaster &timeMaster;
+        mawb::SequencerState state;
+
+        struct TrackInfo {
+            TrackPtr track;
+            EventDispatcherPtr dispatcher;
+            uint next;
+
+            TrackInfo(Track *track, EventDispatcher *dispatcher) :
+                track(track),
+                dispatcher(dispatcher),
+                next(0) {
+            }
         };
+
+        std::vector<TrackInfo> tracks;
+        std::vector<InputDispatcherPtr> inputs;
 
     public:
 
-        Controller(spug::Reactor &reactor);
+        Controller(spug::Reactor &reactor, TimeMaster &timeMaster);
         void runOnce();
+
+        void setState(mawb::SequencerState state);
+
+        /**
+         * Transfers all of the input tracks from the input dispatchers to
+         * the controller.
+         */
+        void storeInputTracks();
+
+        /**
+         * Creates tracks for all of the inputs, initiating event recording.
+         */
+        void beginRecording();
+
+        /**
+         * Add the input dispatcher to the set managed by the controller.
+         */
+        void addInput(InputDispatcher *input) {
+            inputs.push_back(input);
+        }
+
+        /**
+         * Call setTicks() on current TimeMaster and locate the next event for
+         * each track.
+         */
+        void setTicks(uint32 time);
+
+        virtual void run();
+
+
 };
 
 } // namespace awb

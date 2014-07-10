@@ -16,6 +16,20 @@ message Config {
     repeated FluidSynthDisp fluid_disp = 2;
 }
 
+enum SequencerState {
+    // No tracks are being played.
+    IDLE = 0;
+
+    // Recorded tracks are being played.
+    PLAY = 1;
+
+    // The sequencer will begin recording on all inputs as soon as an
+    // event is received from any of them.
+    LATCHED_RECORD = 2;
+
+    // The sequencer is recording events on all inputs.
+    RECORD = 3;
+}
 
 message RPC {
     // Begin Recording. - create a record track, add it to an input.
@@ -25,4 +39,10 @@ message RPC {
 
     // Test function.  Echoes the text to the console.
     repeated string echo = 2;
+
+    // Change the sequencer state to that requested.
+    optional SequencerState change_sequencer_state = 3;
+
+    // Set the clock time.
+    repeated uint32 set_ticks = 4;
 }
