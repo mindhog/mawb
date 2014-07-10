@@ -135,6 +135,10 @@ class Track : public spug::RCBase {
         // event already in the track.
         void add(Event *event);
 
+        size_t size() const { return events.size(); }
+
+        EventPtr get(size_t index) const { return events[index]; }
+
         EventVec::iterator begin() { return events.begin(); }
         EventVec::iterator end() { return events.end(); }
 };

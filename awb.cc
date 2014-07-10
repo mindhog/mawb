@@ -19,6 +19,7 @@ namespace spug {
 
 using namespace awb;
 using namespace google::protobuf::io;
+using namespace mawb;
 using namespace std;
 using namespace spug;
 
@@ -27,10 +28,14 @@ class ConnectionHandler : public Reactable {
         Socket *socket;
         string outData, inData;
         char buffer[4096];
+        Controller &controller;
 
     public:
 
-        ConnectionHandler(Socket *socket) : socket(socket) {}
+        ConnectionHandler(Socket *socket, Controller &controller) :
+            socket(socket),
+            controller(controller) {
+        }
 
         ~ConnectionHandler() {
             delete socket;
@@ -44,6 +49,14 @@ class ConnectionHandler : public Reactable {
 
         bool processEcho(const string &message) {
             cout << "Echo: " << message << endl;
+        }
+
+        void processSetTicks(uint32 ticks) {
+            controller.setTicks(ticks);
+        }
+
+        void processSetState(SequencerState newState) {
+            controller.setState(newState);
         }
 
         // Processes the message, returns 'true' if the message is so far
@@ -73,6 +86,14 @@ class ConnectionHandler : public Reactable {
                     for (int i = 0; i < rpc.echo_size(); ++i)
                         processEcho(rpc.echo(i));
                 }
+
+                if (rpc.set_ticks_size()) {
+                    for (int i = 0; i < rpc.set_ticks_size(); ++i)
+                        processSetTicks(rpc.set_ticks(i));
+                }
+
+                if (rpc.has_change_sequencer_state())
+                    processSetState(rpc.change_sequencer_state());
 
                 // Truncate the used portion of the buffer.
                 inData = inData.substr(size);
@@ -121,9 +142,13 @@ class ConnectionHandler : public Reactable {
 class Listener : public Reactable {
     private:
         Socket socket;
+        Controller &controller;
 
     public:
-        Listener(int port) : socket(port) {
+        Listener(int port, Controller &controller) :
+            socket(port),
+            controller(controller) {
+
             socket.listen(5);
         }
 
@@ -137,7 +162,9 @@ class Listener : public Reactable {
          * descriptor.
          */
         virtual void handleRead(Reactor &reactor) {
-            reactor.addReactable(new ConnectionHandler(socket.acceptAlloc()));
+            reactor.addReactable(
+                new ConnectionHandler(socket.acceptAlloc(), controller)
+            );
         }
 
         /**
@@ -189,12 +216,18 @@ int main(int argc, const char **argv) {
         // from the RPC interface.
         FluidSynthDispatcherPtr fs = new FluidSynthDispatcher();
         fs->loadFont("/usr/share/sounds/sf2/FluidR3_GM.sf2", true);
-        EventDispatcherPtr dispatcher =
+        InputDispatcherPtr dispatcher =
             new InputDispatcher(&timeMaster, 0, fs.get());
 
         ReactorPtr reactor = Reactor::createReactor();
-        reactor->addReactable(new Listener(8193));
         reactor->addReactable(new AlsaReactable(sequencer, dispatcher.get()));
+
+        // Create the controller and add the input.
+        Controller controller(*reactor, timeMaster);
+        controller.addInput(dispatcher.get());
+
+        // Create the RPC listener.
+        reactor->addReactable(new Listener(8193, controller));
 
         cerr << "AWB daemon started." << endl;
         reactor->run();
