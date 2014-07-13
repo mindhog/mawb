@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+typedef unsigned int uint;
 typedef uint8_t byte;
 typedef uint8_t uint8;
 typedef int32_t int32;

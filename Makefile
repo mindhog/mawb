@@ -6,10 +6,16 @@ SRCS = awb alsa engine event fluid mawb.pb
 
 all : awbd mawb_pb2.py
 
+check : event_test
+	event_test
+
 awbd : $(foreach f,$(SRCS),$f.o)
 	g++ $^ -lspug++ -lasound -lfluidsynth -lprotobuf -o awbd
 
 mawb_pb2.py mawb.pb.cc mawb.pb.h : mawb.proto
 	protoc --cpp_out=. --python_out=. mawb.proto
+
+event_test : event_test.o event.o
+	g++ $^ -lspug++ -o event_test
 
 -include $(foreach f,$(SRCS),.deps/$f.d)

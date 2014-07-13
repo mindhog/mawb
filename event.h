@@ -40,15 +40,9 @@ class Event : public spug::RCBase {
 
         virtual Type getType() const = 0;
 
-        // Used to convert the event to a string of bytes suitable for inclusion
-        // in a midi stream of some sort.  /status/ is the current, running
-        // status byte.
-        //
-        // This method returns a tuple consisting of the new status byte and
-        // the string representation of the event.
-//        virtual StatAndString toMidiString(byte status) = 0;
-
-//        virtual void writeTo(MidiWriter &writer) = 0;
+        // Writes the event to 'out', a midi stream.  /status/ is the
+        // current, running status byte, both an input and output parameter.
+        virtual void writeMidi(byte &status, std::ostream &out) const = 0;
 
         virtual void formatTo(std::ostream &out) const = 0;
 
@@ -99,6 +93,7 @@ class NoteOn : public NoteEvent {
         return NOTE_ON;
     }
 
+    virtual void writeMidi(byte &status, std::ostream &out) const;
     virtual void formatTo(std::ostream &out) const;
 
     virtual EventPtr clone() const {
@@ -106,22 +101,29 @@ class NoteOn : public NoteEvent {
     }
 };
 
+SPUG_RCPTR(NoteOn);
+
 class NoteOff : public NoteEvent {
     public:
-        NoteOff(uint32 time, byte channel, byte note) :
-            NoteEvent(time, channel, note, 0) {
+        NoteOff(uint32 time, byte channel, byte note, byte velocity = 0) :
+            NoteEvent(time, channel, note, velocity) {
         }
 
     virtual Type getType() const {
         return NOTE_OFF;
     }
 
+    virtual void writeMidi(byte &status, std::ostream &out) const;
     virtual void formatTo(std::ostream &out) const;
 
     virtual EventPtr clone() const {
         return new NoteOff(time, channel, note);
     }
 };
+
+SPUG_RCPTR(NoteOff);
+
+SPUG_RCPTR(Track);
 
 // A sequence of midi events.
 class Track : public spug::RCBase {
@@ -141,9 +143,43 @@ class Track : public spug::RCBase {
 
         EventVec::iterator begin() { return events.begin(); }
         EventVec::iterator end() { return events.end(); }
+
+        /**
+         * Read an entire track from the array of bytes.
+         */
+        static TrackPtr readFromMidi(const byte *data, size_t size);
 };
 
-SPUG_RCPTR(Track);
+/**
+ * Reads midi events from a buffer.
+ */
+class MidiReader {
+    private:
+        byte status;
+        const byte *cur, *end;
+
+        inline byte readByte();
+        uint readVarLen();
+
+    public:
+        /**
+        * Construct a midi reader from the buffer.
+        */
+        MidiReader(const byte *data, size_t size) :
+            cur(data),
+            end(data + size) {
+        }
+
+//    // This gets called when we read an event with an unknown status byte.
+//    // Override it to deal with special events.
+//    Event readUserEvent();
+
+        /** Read a single event. */
+        EventPtr readEvent();
+
+        /** Read an entire track. */
+        TrackPtr readTrack(const char *name);
+};
 
 }  // namespace awb
 
