@@ -19,8 +19,9 @@ void NoteOn::writeMidi(byte &status, ostream &out) const {
 }
 
 void NoteOn::formatTo(ostream &out) const {
-    out << "NoteOn(t=" << time << ", ch=" << channel << ", n=" << note <<
-        ", v=" << velocity << ")";
+    out << "NoteOn(t=" << time << ", ch=" << static_cast<int>(channel) <<
+        ", n=" << static_cast<int>(note) <<
+        ", v=" << static_cast<int>(velocity) << ")";
 }
 
 void NoteOff::writeMidi(byte &status, ostream &out) const {
@@ -35,8 +36,8 @@ void NoteOff::writeMidi(byte &status, ostream &out) const {
 }
 
 void NoteOff::formatTo(ostream &out) const {
-    out << "NoteOff(t=" << time << ", ch=" << channel << ", n=" << note
-        << ")";
+    out << "NoteOff(t=" << static_cast<int>(time) << ", ch=" <<
+        static_cast<int>(channel) << ", n=" << static_cast<int>(note) << ")";
 }
 
 void Track::add(Event *event) {
@@ -48,6 +49,11 @@ void Track::add(Event *event) {
     events.push_back(event);
 }
 
+TrackPtr Track::readFromMidi(const byte *data, size_t size) {
+    MidiReader reader(data, size);
+    return reader.readTrack(0);
+}
+
 byte MidiReader::readByte() {
     if (cur < end)
         return *cur++;
@@ -56,7 +62,7 @@ byte MidiReader::readByte() {
 }
 
 uint MidiReader::readVarLen() {
-    uint val;
+    uint val = 0;
     byte b = 0x80;
     while (b & 0x80) {
         b = readByte();
@@ -138,7 +144,7 @@ EventPtr MidiReader::readEvent() {
 
 TrackPtr MidiReader::readTrack(const char *name) {
     TrackPtr track = new Track();
-    uint t;
+    uint t = 0;
     while (true) {
         // read the time
         t += readVarLen();
@@ -146,6 +152,7 @@ TrackPtr MidiReader::readTrack(const char *name) {
         if (!evt)
             break;
         evt->time = t;
+        cerr << "read event " << *evt << endl;
         track->add(evt.get());
 //            if (evt.isa(EndTrack))
 //                break;
