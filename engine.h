@@ -15,6 +15,10 @@ namespace spug {
     class Reactor;
 }
 
+namespace mawb {
+    class PBTrack;
+}
+
 namespace awb {
 
 class Event;
@@ -158,6 +162,11 @@ class Controller : public spug::Runnable {
         void beginRecording();
 
         /**
+         * Add a serialized track to the current section.
+         */
+        void addTrack(const mawb::PBTrack &track);
+
+        /**
          * Add the input dispatcher to the set managed by the controller.
          */
         void addInput(InputDispatcher *input) {
@@ -169,6 +178,16 @@ class Controller : public spug::Runnable {
          * each track.
          */
         void setTicks(uint32 time);
+
+        /**
+         * Load the state from the specified state file.
+         */
+        void loadState(const std::string &filename);
+
+        /**
+         * Save the state to the specified state file.
+         */
+        void saveState(const std::string &filename) const;
 
         virtual void run();
 

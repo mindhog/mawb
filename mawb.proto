@@ -31,6 +31,20 @@ enum SequencerState {
     RECORD = 3;
 }
 
+message Project {
+    repeated Section section = 1;
+}
+
+message Section {
+    optional string name = 1;
+    repeated PBTrack track = 2;
+}
+
+message PBTrack {
+    optional string name = 1;
+    optional bytes events = 2;
+}
+
 message RPC {
     // Begin Recording. - create a record track, add it to an input.
 
@@ -45,4 +59,13 @@ message RPC {
 
     // Set the clock time.
     repeated uint32 set_ticks = 4;
+
+    // Store the current state in the specified file.
+    optional string save_state = 5;
+
+    // Load the current state from the specified file.
+    optional string load_state = 6;
+
+    // Add a new track to the current section of the project.
+    optional PBTrack add_track = 7;
 }
