@@ -16,6 +16,6 @@ mawb_pb2.py mawb.pb.cc mawb.pb.h : mawb.proto
 	protoc --cpp_out=. --python_out=. mawb.proto
 
 event_test : event_test.o event.o
-	g++ $^ -lspug++ -o event_test
+	g++ $^ -g -lspug++ -o event_test
 
 -include $(foreach f,$(SRCS),.deps/$f.d)
