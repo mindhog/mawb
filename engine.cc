@@ -1,7 +1,9 @@
 
 #include "engine.h"
 
+#include <fstream>
 #include <iostream>
+#include <sstream>
 
 #include <spug/Reactor.h>
 #include <spug/Time.h>
@@ -118,6 +120,15 @@ void Controller::beginRecording() {
         inputs[i]->beginRecording();
 }
 
+void Controller::addTrack(const PBTrack &track) {
+    const string &events = track.events();
+    TrackPtr trackObj = Track::readFromMidi(
+        reinterpret_cast<const byte *>(events.data()),
+        events.size()
+    );
+    tracks.push_back(TrackInfo(trackObj.get(), inputs[0]->getConsumer()));
+}
+
 void Controller::setTicks(uint32 time) {
     timeMaster.setTicks(time);
 
@@ -131,6 +142,37 @@ void Controller::setTicks(uint32 time) {
                 break;
         }
         ti.next = j;
+    }
+}
+
+void Controller::saveState(const string &name) const {
+    Project project;
+    Section *section = project.add_section();
+
+    for (int i = 0; i < tracks.size(); ++i) {
+        const TrackInfo &ti = tracks[i];
+        PBTrack *track = section->add_track();
+        ostringstream out;
+        byte status = 0;
+        for (int j = 0; j < ti.track->size(); ++j)
+            ti.track->get(j)->writeMidi(status, out);
+        track->set_events(out.str());
+    }
+
+    ofstream fileOutput(name.c_str());
+    project.SerializeToOstream(&fileOutput);
+}
+
+void Controller::loadState(const string &name) {
+    Project project;
+    ifstream fileInput(name.c_str());
+    project.ParseFromIstream(&fileInput);
+
+    const Section &section = project.section(0);
+
+    for (int i = 0; i < section.track_size(); ++i) {
+        const PBTrack &trackPB = section.track(i);
+        addTrack(trackPB);
     }
 }
 
@@ -164,7 +206,7 @@ void Controller::runOnce() {
             // Play all events that are due to be played.
             Event *event = ti.track->get(ti.next).get();
             while (time >= event->time) {
-//                cerr << "playing event " << *event << endl;
+                cerr << "playing event " << *event << endl;
                 ti.dispatcher->onEvent(event);
                 ti.next++;
                 if (ti.next >= ti.track->size()) {

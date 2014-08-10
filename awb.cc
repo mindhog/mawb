@@ -59,6 +59,14 @@ class ConnectionHandler : public Reactable {
             controller.setState(newState);
         }
 
+        void processSaveState(const string &filename) {
+            controller.saveState(filename);
+        }
+
+        void processLoadState(const string &filename) {
+            controller.loadState(filename);
+        }
+
         // Processes the message, returns 'true' if the message is so far
         // still viable, false if the reactor should terminate the connection.
         bool processMessage() {
@@ -92,11 +100,23 @@ class ConnectionHandler : public Reactable {
                         processSetTicks(rpc.set_ticks(i));
                 }
 
+                if (rpc.has_save_state())
+                    processSaveState(rpc.save_state());
+
+                if (rpc.has_load_state())
+                    processLoadState(rpc.load_state());
+
+                if (rpc.has_add_track()) {
+                    controller.addTrack(rpc.add_track());
+                }
+
+                // We do this after the state change events so a client can
+                // add a "play" to setup.
                 if (rpc.has_change_sequencer_state())
                     processSetState(rpc.change_sequencer_state());
 
                 // Truncate the used portion of the buffer.
-                inData = inData.substr(size);
+                inData = inData.substr(size + 4);
             }
             return true;
         }
@@ -150,6 +170,7 @@ class Listener : public Reactable {
             controller(controller) {
 
             socket.listen(5);
+            socket.setReusable(true);
         }
 
         virtual Status getStatus() {
