@@ -40,6 +40,17 @@ void NoteOff::formatTo(ostream &out) const {
         static_cast<int>(channel) << ", n=" << static_cast<int>(note) << ")";
 }
 
+void ProgramChange::writeMidi(byte &status, ostream &out) const {
+    status = 0xC0 | channel;
+    out << status << program;
+}
+
+void ProgramChange::formatTo(ostream &out) const {
+    out << "ProgramChange(t=" << static_cast<int>(time) << ", ch=" <<
+        static_cast<int>(channel) << ", prog=" << static_cast<int>(program) <<
+        ")";
+}
+
 void Track::add(Event *event) {
     SPUG_CHECK(!events.size() || event->time >= events.back()->time,
                "Adding event " << *event <<
@@ -105,9 +116,7 @@ EventPtr MidiReader::readEvent() {
         return 0;
 //                return new PitchWheel(0, channel, (readByte() << 7) | first);
     } else if (statusHigh == 0xC0) {
-        cerr << "reading ProgramChange not supported yet" << endl;
-        return 0;
-//                return ProgramChange(0, channel, first);
+        return new ProgramChange(0, channel, first);
     } else if (statusHigh == 0xB0) {
         cerr << "reading ControlChange not supported yet" << endl;
         return 0;
