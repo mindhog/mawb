@@ -36,6 +36,11 @@ void FluidSynthDispatcher::onEvent(Event *event) {
             fluid_synth_noteoff(synth, note->channel, note->note);
             break;
         }
+        case Event::PROGRAM_CHANGE: {
+            ProgramChange *pc = static_cast<ProgramChange *>(event);
+            fluid_synth_program_change(synth, pc->channel, pc->program);
+            break;
+        }
         default:
             cerr << "Event " << *event <<
                 " not implemented in FluidSynthDispatcher" << endl;

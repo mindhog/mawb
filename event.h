@@ -35,7 +35,8 @@ class Event : public spug::RCBase {
 
         enum Type {
             NOTE_ON,
-            NOTE_OFF
+            NOTE_OFF,
+            PROGRAM_CHANGE
         };
 
         virtual Type getType() const = 0;
@@ -122,6 +123,30 @@ class NoteOff : public NoteEvent {
 };
 
 SPUG_RCPTR(NoteOff);
+
+SPUG_RCPTR(ProgramChange);
+
+class ProgramChange : public ChannelEvent {
+    public:
+        byte program;
+
+        ProgramChange(uint32 time, byte channel, byte program) :
+            ChannelEvent(time, channel),
+            program(program) {
+        }
+
+        virtual Type getType() const {
+            return PROGRAM_CHANGE;
+        }
+
+        virtual void writeMidi(byte &status, std::ostream &out) const;
+        virtual void formatTo(std::ostream &out) const;
+
+        virtual EventPtr clone() const {
+            return new ProgramChange(time, channel, program);
+        }
+};
+
 
 SPUG_RCPTR(Track);
 

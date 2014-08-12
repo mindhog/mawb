@@ -29,6 +29,12 @@ void Port::send(const Event &event) {
                                    );
             break;
         }
+        case Event::PROGRAM_CHANGE: {
+            const ProgramChange &pc =
+                static_cast<const ProgramChange &>(event);
+            snd_seq_ev_set_pgmchange(&e, pc.channel, pc.program);
+            break;
+        }
         default:
             throw Exception(SPUG_FSTR("Can't send event " <<
                                       event << " to alsa (event type "
@@ -51,9 +57,10 @@ EventPtr Sequencer::getEvent() const {
             snd_seq_ev_note_t &note = alsaEvent->data.note;
             return new NoteOff(0, note.channel, note.note);
         }
-//        case SND_SEQ_EVENT_PGMCHANGE: {
-//            snd_seq_ev_ctrl_t &ctrl = alsaEvent->data.ctrl;
-//            return new ProgramChange(
+        case SND_SEQ_EVENT_PGMCHANGE: {
+            snd_seq_ev_ctrl_t &ctrl = alsaEvent->data.control;
+            return new ProgramChange(0, ctrl.channel, ctrl.value);
+        }
         default:
             return 0;
 //            throw Exception(SPUG_FSTR("Unknown input event type " <<
