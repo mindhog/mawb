@@ -55,6 +55,20 @@ class ConnectionHandler : public Reactable {
             controller.setTicks(ticks);
         }
 
+        void processSetInitialState(const SetInitialState &msg) {
+            EventDispatcherPtr disp =
+                controller.getDispatcher(msg.dispatcher());
+            if (disp) {
+                TrackPtr track = Track::readFromMidi(
+                    reinterpret_cast<const byte *>(msg.events().data()),
+                    msg.events().size()
+                );
+                disp->sendEvents(*track);
+            } else {
+                cerr << "Invalid dispatcher: " << msg.dispatcher() << endl;
+            }
+        }
+
         void processSetState(SequencerState newState) {
             controller.setState(newState);
         }
@@ -98,6 +112,11 @@ class ConnectionHandler : public Reactable {
                 if (rpc.set_ticks_size()) {
                     for (int i = 0; i < rpc.set_ticks_size(); ++i)
                         processSetTicks(rpc.set_ticks(i));
+                }
+
+                if (rpc.set_initial_state_size()) {
+                    for (int i = 0; i < rpc.set_initial_state_size(); ++i)
+                        processSetInitialState(rpc.set_initial_state(i));
                 }
 
                 if (rpc.has_save_state())
@@ -243,9 +262,11 @@ int main(int argc, const char **argv) {
         ReactorPtr reactor = Reactor::createReactor();
         reactor->addReactable(new AlsaReactable(sequencer, dispatcher.get()));
 
-        // Create the controller and add the input.
+        // Create the controller and register the input and fluid dispatcher
+        // with the controller.
         Controller controller(*reactor, timeMaster);
         controller.addInput(dispatcher.get());
+        controller.setDispatcher("fluid", fs.get());
 
         // Create the RPC listener.
         reactor->addReactable(new Listener(8193, controller));

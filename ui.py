@@ -1,12 +1,16 @@
 # Initial command-line user-interface.
 # Will turn this into a real UI at some point.
 
-from mawb_pb2 import RPC, RECORD, IDLE, PLAY
+from mawb_pb2 import PBTrack, SetInitialState, RPC, RECORD, IDLE, PLAY
 import socket
 import struct
 import subprocess
 import time
 from Tkinter import Frame, Text, Tk
+
+import midi
+import midifile
+from StringIO import StringIO
 
 import sys
 
@@ -14,6 +18,8 @@ bindings = '''Key Bindings:
 <Space>  Play/Pause.
 F5 - record.
 F3 - quit.
+commands:
+    p<n> change program of current channel to n
 '''
 
 class Comm:
@@ -34,6 +40,10 @@ class Comm:
             rpc.save_state = kwargs['save_state']
         if 'load_state' in kwargs:
             rpc.load_state = kwargs['load_state']
+        if 'add_track' in kwargs:
+            rpc.add_track.CopyFrom(kwargs['add_track'])
+        if 'set_initial_state' in kwargs:
+            rpc.set_initial_state.add().CopyFrom(kwargs['set_initial_state'])
         parcel = rpc.SerializeToString()
         data = struct.pack('<I', len(parcel)) + parcel
         self.sock.send(data)
@@ -82,7 +92,31 @@ class MyWin(Frame):
         self.text.grid()
         commands.out = Output(self.text)
         self.bindCommands(commands)
+        self.commands = commands
         self.grid()
+
+    def eval(self, event):
+        cmd = self.text.get('insert linestart', 'insert')
+        if cmd[0] == 'p':
+            val = int(cmd[1:])
+
+            # Encode the program change event into a midi track.
+            # XXX doing this elsewhere, refactor into a library.
+            mtrack = midi.Track()
+            mtrack.add(midi.ProgramChange(0, 0, val))
+            out = StringIO()
+            writer = midifile.Writer(out)
+            events = writer.encodeEvents(mtrack)
+
+            # And send it to the dispatcher.  This will cause the program
+            # change event to happen on the first play.
+            print 'sending add track'
+            setState = SetInitialState()
+            setState.dispatcher = 'fluid'
+            setState.events = events
+            self.commands.comm.sendRPC(set_initial_state = setState)
+        else:
+            self.text.insert('end', 'Unrecognized command\n')
 
     def bindCommands(self, commands):
         self.text.insert('insert', bindings)
@@ -91,6 +125,7 @@ class MyWin(Frame):
         self.text.bind('<F7>', commands.restart)
         self.text.bind('<F3>', self.shutdown)
         self.text.bind('<F1>', self.help)
+        self.text.bind('<Return>', self.eval)
         self.text.tag_configure('info', foreground = 'green')
 
     def shutdown(self, event):

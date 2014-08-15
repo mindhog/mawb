@@ -16,6 +16,11 @@ using namespace mawb;
 using namespace spug;
 using namespace std;
 
+void EventDispatcher::sendEvents(const Track &track) {
+    for (int i = 0; i < track.size(); ++i)
+        onEvent(track.get(i).get());
+}
+
 void DebugDispatcher::onEvent(Event *event) {
     cout << "Got event " << *event << endl;
 }
@@ -174,6 +179,20 @@ void Controller::loadState(const string &name) {
         const PBTrack &trackPB = section.track(i);
         addTrack(trackPB);
     }
+}
+
+void Controller::setDispatcher(const string &name,
+                               EventDispatcher *dispatcher
+                               ) {
+    dispatchers[name] = dispatcher;
+}
+
+EventDispatcherPtr Controller::getDispatcher(const string &name) const {
+    DispatcherMap::const_iterator iter = dispatchers.find(name);
+    if (iter == dispatchers.end())
+        return 0;
+    else
+        return iter->second;
 }
 
 static const uint32 NEVER = 0xffffffff;
