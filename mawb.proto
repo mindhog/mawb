@@ -45,6 +45,18 @@ message PBTrack {
     optional bytes events = 2;
 }
 
+// Sets the initial state of an event dispatcher.
+// The initial state is a set of midi events that are sent to the event
+// dispatcher at the time when this message is sent and when the timer is set
+// to zero.
+message SetInitialState {
+    // The name of the dispatcher.
+    optional string dispatcher = 1;
+
+    // A midi track containing the events.
+    optional bytes events = 2;
+}
+
 message RPC {
     // Begin Recording. - create a record track, add it to an input.
 
@@ -68,4 +80,7 @@ message RPC {
 
     // Add a new track to the current section of the project.
     optional PBTrack add_track = 7;
+
+    // Set the initial state of an event dispatcher.
+    repeated SetInitialState set_initial_state = 8;
 }

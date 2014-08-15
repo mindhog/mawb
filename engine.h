@@ -2,6 +2,7 @@
 #define awb_engine_h_
 
 #include <vector>
+#include <map>
 
 #include <spug/RCBase.h>
 #include <spug/RCPtr.h>
@@ -30,6 +31,11 @@ SPUG_RCPTR(Track);
 class EventDispatcher : public spug::RCBase {
     public:
         virtual void onEvent(Event *event) = 0;
+
+        /**
+         * Send all of the events in the track to the dispatcher.
+         */
+        void sendEvents(const Track &track);
 };
 
 SPUG_RCPTR(EventDispatcher);
@@ -143,6 +149,9 @@ class Controller : public spug::Runnable {
         std::vector<TrackInfo> tracks;
         std::vector<InputDispatcherPtr> inputs;
 
+        typedef std::map<std::string, EventDispatcherPtr> DispatcherMap;
+        DispatcherMap dispatchers;
+
     public:
 
         Controller(spug::Reactor &reactor, TimeMaster &timeMaster);
@@ -183,6 +192,19 @@ class Controller : public spug::Runnable {
          * Load the state from the specified state file.
          */
         void loadState(const std::string &filename);
+
+        /**
+         * Register an event dispatcher under the given name.
+         */
+        void setDispatcher(const std::string &name,
+                           EventDispatcher *dispatcher
+                           );
+
+        /**
+         * Returns the named event dispatcher or null if there is none by that
+         * name.
+         */
+        EventDispatcherPtr getDispatcher(const std::string &name) const;
 
         /**
          * Save the state to the specified state file.
