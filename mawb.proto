@@ -31,8 +31,16 @@ enum SequencerState {
     RECORD = 3;
 }
 
+message DispatcherInfo {
+    optional string name = 1;
+
+    // An event sequence to establish the initial state of the sequencer.
+    optional bytes initial_state = 2;
+}
+
 message Project {
     repeated Section section = 1;
+    repeated DispatcherInfo dispatchers = 2;
 }
 
 message Section {

@@ -63,6 +63,7 @@ class ConnectionHandler : public Reactable {
                     reinterpret_cast<const byte *>(msg.events().data()),
                     msg.events().size()
                 );
+                disp->initialState = msg.events();
                 disp->sendEvents(*track);
             } else {
                 cerr << "Invalid dispatcher: " << msg.dispatcher() << endl;
