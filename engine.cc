@@ -164,6 +164,18 @@ void Controller::saveState(const string &name) const {
         track->set_events(out.str());
     }
 
+    // Set the initial state.
+    for (DispatcherMap::const_iterator iter = dispatchers.begin();
+         iter != dispatchers.end();
+         ++iter
+         ) {
+        if (iter->second->initialState.size()) {
+            DispatcherInfo *di = project.add_dispatchers();
+            di->set_name(iter->first);
+            di->set_initial_state(iter->second->initialState);
+        }
+    }
+
     ofstream fileOutput(name.c_str());
     project.SerializeToOstream(&fileOutput);
 }
@@ -178,6 +190,21 @@ void Controller::loadState(const string &name) {
     for (int i = 0; i < section.track_size(); ++i) {
         const PBTrack &trackPB = section.track(i);
         addTrack(trackPB);
+    }
+
+    // Set the dispatcher parameters.
+    for (int i = 0; i < project.dispatchers_size(); ++i) {
+        const DispatcherInfo &di = project.dispatchers(i);
+        EventDispatcherPtr disp = getDispatcher(di.name());
+        if (di.has_initial_state()) {
+            disp->initialState = di.initial_state();
+            disp->sendEvents(
+                *Track::readFromMidi(
+                    reinterpret_cast<const byte *>(disp->initialState.data()),
+                    disp->initialState.size()
+                )
+            );
+        }
     }
 }
 

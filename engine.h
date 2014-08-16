@@ -30,6 +30,10 @@ SPUG_RCPTR(Track);
 // should control processing of the event.
 class EventDispatcher : public spug::RCBase {
     public:
+        // A sequence of events that is written to the dispatcher on
+        // initialization.
+        std::string initialState;
+
         virtual void onEvent(Event *event) = 0;
 
         /**

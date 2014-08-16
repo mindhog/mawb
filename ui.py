@@ -16,8 +16,10 @@ import sys
 
 bindings = '''Key Bindings:
 <Space>  Play/Pause.
+F8 - save
 F5 - record.
 F3 - quit.
+F2 - load
 commands:
     p<n> change program of current channel to n
 '''
@@ -27,6 +29,9 @@ class Comm:
     def __init__(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
         self.sock.connect(('127.0.0.1', 8193))
+
+    def close(self):
+        self.sock.close()
 
     def sendRPC(self, **kwargs):
         rpc = RPC()
@@ -63,6 +68,8 @@ class Commands:
         self.playing = False
         self.out = None
 
+        self.filename = 'noname.mawb'
+
     def togglePlay(self, event):
         if not self.playing:
             self.comm.sendRPC(change_sequencer_state = PLAY)
@@ -73,6 +80,12 @@ class Commands:
             self.playing = False
             self.out.info('paused')
         return 'break'
+
+    def save(self, event):
+        self.comm.sendRPC(save_state = self.filename)
+
+    def load(self, event):
+        self.comm.sendRPC(load_state = self.filename)
 
     def restart(self, event):
         self.comm.sendRPC(set_ticks = 0)
@@ -124,6 +137,8 @@ class MyWin(Frame):
         self.text.bind('<F5>', commands.record)
         self.text.bind('<F7>', commands.restart)
         self.text.bind('<F3>', self.shutdown)
+        self.text.bind('<F2>', commands.save)
+        self.text.bind('<F8>', commands.load)
         self.text.bind('<F1>', self.help)
         self.text.bind('<Return>', self.eval)
         self.text.tag_configure('info', foreground = 'green')
@@ -172,5 +187,6 @@ def run():
     commands = Commands(comm)
     win = MyWin(Tk(), commands)
     win.mainloop()
+    comm.close()
 
 run()
