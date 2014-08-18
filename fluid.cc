@@ -14,6 +14,7 @@ FluidSynthDispatcher::FluidSynthDispatcher() {
 }
 
 FluidSynthDispatcher::~FluidSynthDispatcher() {
+    delete_fluid_audio_driver(driver);
     delete_fluid_synth(synth);
     delete_fluid_settings(settings);
 }
