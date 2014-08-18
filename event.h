@@ -45,6 +45,11 @@ class Event : public spug::RCBase {
         // current, running status byte, both an input and output parameter.
         virtual void writeMidi(byte &status, std::ostream &out) const = 0;
 
+        // Write the event to 'out' along with its timestamp.
+        void writeMidiWithTime(byte &status, uint lastTime,
+                               std::ostream &out
+                               ) const;
+
         virtual void formatTo(std::ostream &out) const = 0;
 
         // Make a copy of the event object.
