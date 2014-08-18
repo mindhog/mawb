@@ -159,8 +159,12 @@ void Controller::saveState(const string &name) const {
         PBTrack *track = section->add_track();
         ostringstream out;
         byte status = 0;
-        for (int j = 0; j < ti.track->size(); ++j)
-            ti.track->get(j)->writeMidi(status, out);
+        uint lastTime = 0;
+        for (int j = 0; j < ti.track->size(); ++j) {
+            EventPtr event = ti.track->get(j);
+            event->writeMidiWithTime(status, lastTime, out);
+            lastTime = event->time;
+        }
         track->set_events(out.str());
     }
 
@@ -187,6 +191,7 @@ void Controller::loadState(const string &name) {
 
     const Section &section = project.section(0);
 
+    // Add all of the tracks.
     for (int i = 0; i < section.track_size(); ++i) {
         const PBTrack &trackPB = section.track(i);
         addTrack(trackPB);

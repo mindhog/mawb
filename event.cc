@@ -9,6 +9,41 @@ using namespace awb;
 using namespace spug;
 using namespace std;
 
+namespace {
+    void writeVarLen(ostream &out, uint val) {
+
+        // Special case 0.
+        if (val == 0) {
+            out << static_cast<byte>(0);
+            return;
+        }
+
+        // Encode the value into an array of bytes.  It's easier to do this
+        // from LSB to MSB.
+        byte bytes[5];
+        int i = 0;
+        while (val) {
+            byte cur = val & 0x7f;
+            val >>= 7;
+            if (i != 0) cur |= 0x80;
+            bytes[i++] = cur;
+        }
+
+        // Now write the byte out in the correct order
+        while (i)
+            out << bytes[--i];
+    }
+}
+
+void Event::writeMidiWithTime(byte &status, uint lastTime, ostream &out) const {
+    SPUG_CHECK(time >= lastTime,
+               "writing event " << *this <<
+                " which is earlier than last event " << lastTime
+               );
+    writeVarLen(out, time - lastTime);
+    writeMidi(status, out);
+}
+
 void NoteOn::writeMidi(byte &status, ostream &out) const {
     if (status == (0x90 | channel)) {
         out << note << velocity;
@@ -145,7 +180,7 @@ EventPtr MidiReader::readEvent() {
             return 0;
         }
     } else {
-        cerr << "unknown status code: " << status << endl;
+        cerr << "unknown status code: " << static_cast<int>(status) << endl;
         return 0;
 //            return readUserEvent();
     }
@@ -154,7 +189,7 @@ EventPtr MidiReader::readEvent() {
 TrackPtr MidiReader::readTrack(const char *name) {
     TrackPtr track = new Track();
     uint t = 0;
-    while (true) {
+    while (cur < end) {
         // read the time
         t += readVarLen();
         EventPtr evt = readEvent();
