@@ -241,6 +241,10 @@ class Listener : public Reactable {
 };
 
 int main(int argc, const char **argv) {
+    // Making this live outside of the try catch because I haven't figured
+    // out how to shut it down cleanly during an exception.
+    FluidSynthDispatcherPtr fs;
+
     try {
         TimeMaster timeMaster;
         timeMaster.setPPB(96);
@@ -255,7 +259,7 @@ int main(int argc, const char **argv) {
         // FluidSynthDispatcher.
         // All of this stuff should be set up from the persistent state or
         // from the RPC interface.
-        FluidSynthDispatcherPtr fs = new FluidSynthDispatcher();
+        fs = new FluidSynthDispatcher();
         fs->loadFont("/usr/share/sounds/sf2/FluidR3_GM.sf2", true);
         InputDispatcherPtr dispatcher =
             new InputDispatcher(&timeMaster, 0, fs.get());
