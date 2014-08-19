@@ -1,12 +1,13 @@
 # Initial command-line user-interface.
 # Will turn this into a real UI at some point.
 
-from mawb_pb2 import PBTrack, SetInitialState, RPC, RECORD, IDLE, PLAY
+from mawb_pb2 import PBTrack, SetInitialState, SetInputParams, RPC, RECORD, \
+    IDLE, PLAY
 import socket
 import struct
 import subprocess
 import time
-from Tkinter import Frame, Text, Tk
+from Tkinter import Button, Frame, Text, Tk
 
 import midi
 import midifile
@@ -23,6 +24,72 @@ F2 - load
 commands:
     p<n> change program of current channel to n
 '''
+
+class Command:
+    def __init__(self, name, argDefs, func):
+        """
+            Args:
+                name: [str] the function name
+                argDefs: [list<callable(any) -> any>] A list of functions that
+                    can appept anything as input and either raise an
+                    exception or return the function converted to the
+                    appropriate argument type.
+                func: [callable(Commands, *args)] Function to be called when
+                    the command is invoked.
+            """
+        self.name = name
+        self.argDefs = argDefs
+        self.func = func
+
+    def __call__(self, context, *args):
+        convertedArgs = []
+        for convert, val in zip(self.argDefs, args):
+            print 'convert is %r' % convert
+            convertedArgs.append(convert(val))
+        self.func(context, *convertedArgs)
+
+def setChannel(context, channel):
+    """
+        Set the current channel.  This is used for subsequent commands and
+        will also be sent to the input dispatcher to configure the channel
+        that all incoming events are coerced to.
+
+        parms:
+            context: [Commands]
+            channel: [int]
+    """
+    context.channel = channel
+    req = SetInputParams()
+    req.output_channel = channel
+    context.comm.sendRPC(set_input_params = req)
+    context.out.info('Current channel is %d' % channel)
+
+def setProgram(context, program):
+    """
+        Set the program for the current channel.
+
+        parms:
+            context: [Commands]
+            program: [int]
+    """
+
+    context.initializers[context.channel] = program
+    events = context.getInitializerString()
+
+    # And send it to the dispatcher.  This will cause the program
+    # change event to happen immediately and on the first play.
+    print 'sending add track'
+    setState = SetInitialState()
+    setState.dispatcher = 'fluid'
+    setState.events = events
+    context.comm.sendRPC(set_initial_state = setState)
+
+    context.out.info('Set program to %d' % program)
+
+commands = {
+    'ch': Command('ch', [int], setChannel),
+    'p': Command('p', [int], setProgram)
+}
 
 class Comm:
 
@@ -49,6 +116,8 @@ class Comm:
             rpc.add_track.CopyFrom(kwargs['add_track'])
         if 'set_initial_state' in kwargs:
             rpc.set_initial_state.add().CopyFrom(kwargs['set_initial_state'])
+        if 'set_input_params' in kwargs:
+            rpc.set_input_params.CopyFrom(kwargs['set_input_params'])
         parcel = rpc.SerializeToString()
         data = struct.pack('<I', len(parcel)) + parcel
         self.sock.send(data)
@@ -68,9 +137,29 @@ class Commands:
         self.playing = False
         self.out = None
 
+        # The current channel (the target for commands that affect the
+        # chennel).  When we do setChannel() (the "ch" command) this is synced
+        # to the output channel on the daemon's input dispatcher, but this is
+        # not initially the case.
+        self.channel = 0
+
+        # A mapping from a channel number to the initializer string for the
+        # channel.
+        self.initializers = {}
+
         self.filename = 'noname.mawb'
 
-    def togglePlay(self, event):
+    def getInitializerString(self):
+        """
+            Returns the initializer string for the fluid dispatcher,
+            constructed from events for all of the channels.
+        """
+        track = midi.Track()
+        for channel, program in self.initializers.iteritems():
+            track.add(midi.ProgramChange(0, channel, program))
+        return midifile.serializeTrack(track)
+
+    def togglePlay(self, event=None):
         if not self.playing:
             self.comm.sendRPC(change_sequencer_state = PLAY)
             self.playing = True
@@ -103,6 +192,13 @@ class MyWin(Frame):
         Frame.__init__(self, top)
         self.text = Text(self)
         self.text.grid()
+
+        self.buttons = Frame(self)
+        self.playBtn = Button(self.buttons, text = '>',
+                              command = commands.togglePlay
+                              )
+        self.playBtn.pack()
+        self.buttons.grid()
         commands.out = Output(self.text)
         self.bindCommands(commands)
         self.commands = commands
@@ -110,30 +206,20 @@ class MyWin(Frame):
 
     def eval(self, event):
         cmd = self.text.get('insert linestart', 'insert')
+        cmd = cmd.split()
+        try:
+            commandObj = commands[cmd[0]]
+        except KeyError:
+            self.commands.out.info('No such command %s' % cmd[0])
+        commandObj(self.commands, *cmd[1:])
+
         if cmd[0] == 'p':
             val = int(cmd[1:])
-
-            # Encode the program change event into a midi track.
-            # XXX doing this elsewhere, refactor into a library.
-            mtrack = midi.Track()
-            mtrack.add(midi.ProgramChange(0, 0, val))
-            out = StringIO()
-            writer = midifile.Writer(out)
-            events = writer.encodeEvents(mtrack)
-
-            # And send it to the dispatcher.  This will cause the program
-            # change event to happen on the first play.
-            print 'sending add track'
-            setState = SetInitialState()
-            setState.dispatcher = 'fluid'
-            setState.events = events
-            self.commands.comm.sendRPC(set_initial_state = setState)
         else:
             self.text.insert('end', 'Unrecognized command\n')
 
     def bindCommands(self, commands):
         self.text.insert('insert', bindings)
-        self.text.bind('<Key-space>', commands.togglePlay)
         self.text.bind('<F5>', commands.record)
         self.text.bind('<F7>', commands.restart)
         self.text.bind('<F3>', self.shutdown)
@@ -184,9 +270,11 @@ def run():
     subprocess.call(['jack_connect', 'fluidsynth:r_00', 'system:playback_2'])
 
     comm = Comm()
-    commands = Commands(comm)
-    win = MyWin(Tk(), commands)
-    win.mainloop()
-    comm.close()
+    try:
+        commands = Commands(comm)
+        win = MyWin(Tk(), commands)
+        win.mainloop()
+    finally:
+        comm.close()
 
 run()

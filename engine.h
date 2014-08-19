@@ -63,6 +63,11 @@ class InputDispatcher : public EventDispatcher {
         TrackPtr track;
         EventDispatcherPtr consumer;
 
+        // If this is not -1, it is the output channel.  All ChannelEvents
+        // have their channel value overriden to this before being passed on
+        // to the consumer.
+        int outputChannel;
+
     public:
         InputDispatcher(TimeMaster *timeMaster, Track *recordTrack = 0,
                         EventDispatcher *consumer = 0
@@ -75,6 +80,10 @@ class InputDispatcher : public EventDispatcher {
         EventDispatcher *getConsumer() const { return consumer.get(); }
 
         void setRecordTrack(Track *track);
+
+        void setOutputChannel(int outputChannel) {
+            this->outputChannel = outputChannel;
+        }
 
         /**
          * Returns the current record track and releases ownership of it.
@@ -184,6 +193,14 @@ class Controller : public spug::Runnable {
          */
         void addInput(InputDispatcher *input) {
             inputs.push_back(input);
+        }
+
+        /**
+         * This currently returns the first input dispatcher.  This is lame.
+         * TODO: figure out the right way to manage input dispatchers.
+         */
+        InputDispatcherPtr getInputDispatcher() const {
+            return inputs.front();
         }
 
         /**
