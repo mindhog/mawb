@@ -65,6 +65,13 @@ message SetInitialState {
     optional bytes events = 2;
 }
 
+// Set the parameters of the input dispatcher.
+message SetInputParams {
+
+    // The channel to convert all events to.
+    optional int32 output_channel = 1;
+}
+
 message RPC {
     // Begin Recording. - create a record track, add it to an input.
 
@@ -91,4 +98,6 @@ message RPC {
 
     // Set the initial state of an event dispatcher.
     repeated SetInitialState set_initial_state = 8;
+
+    optional SetInputParams set_input_params = 9;
 }

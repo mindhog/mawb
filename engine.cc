@@ -28,6 +28,11 @@ void DebugDispatcher::onEvent(Event *event) {
 void InputDispatcher::onEvent(Event *event) {
     uint32 t = timeMaster->getTicks();
     event->time = t;
+
+    // Override the output channel if requested.
+    if (outputChannel != -1 && event->isChannelEvent())
+        ChannelEventPtr::cast(event)->channel = outputChannel;
+
     if (track)
         track->add(event);
     if (consumer)
@@ -39,7 +44,8 @@ InputDispatcher::InputDispatcher(TimeMaster *timeMaster, Track *recordTrack,
                                  ) :
     timeMaster(timeMaster),
     track(recordTrack),
-    consumer(consumer) {
+    consumer(consumer),
+    outputChannel(-1) {
 }
 
 void InputDispatcher::setRecordTrack(Track *track) {

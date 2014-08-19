@@ -41,6 +41,13 @@ class Event : public spug::RCBase {
 
         virtual Type getType() const = 0;
 
+        // Returns true if the event is a ChannelEvent.
+        bool isChannelEvent() const {
+            Type type = getType();
+            return type == NOTE_ON || type == NOTE_OFF ||
+                   type == PROGRAM_CHANGE;
+        }
+
         // Writes the event to 'out', a midi stream.  /status/ is the
         // current, running status byte, both an input and output parameter.
         virtual void writeMidi(byte &status, std::ostream &out) const = 0;
@@ -69,6 +76,8 @@ class ChannelEvent : public Event {
             channel(channel) {
         }
 };
+
+SPUG_RCPTR(ChannelEvent);
 
 //  Base class for midi "note on" and "note off" events, both of which have
 //  the same public interface.

@@ -120,6 +120,14 @@ class ConnectionHandler : public Reactable {
                         processSetInitialState(rpc.set_initial_state(i));
                 }
 
+                if (rpc.has_set_input_params()) {
+                    const SetInputParams &inputParams = rpc.set_input_params();
+                    if (inputParams.has_output_channel())
+                        controller.getInputDispatcher()->setOutputChannel(
+                            inputParams.output_channel()
+                        );
+                }
+
                 if (rpc.has_save_state())
                     processSaveState(rpc.save_state());
 
