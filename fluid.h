@@ -26,7 +26,8 @@ class FluidSynthDispatcher : public EventDispatcher {
         // Load a sound-font.
         void loadFont(const char *filename, bool resetPresets);
 
-        void onEvent(Event *event);
+        virtual void onEvent(Event *event);
+        virtual void onIdle();
 };
 
 

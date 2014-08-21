@@ -48,3 +48,8 @@ void FluidSynthDispatcher::onEvent(Event *event) {
     }
 }
 
+void FluidSynthDispatcher::onIdle() {
+    // On idle, shut all of the audio down.
+    for (int channel = 0; channel < 16; ++channel)
+        fluid_synth_all_sounds_off(synth, channel);
+}
