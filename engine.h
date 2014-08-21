@@ -37,6 +37,11 @@ class EventDispatcher : public spug::RCBase {
         virtual void onEvent(Event *event) = 0;
 
         /**
+         * Called when the engine is switched to "idle" state.
+         */
+        virtual void onIdle() = 0;
+
+        /**
          * Send all of the events in the track to the dispatcher.
          */
         void sendEvents(const Track &track);
@@ -47,6 +52,7 @@ SPUG_RCPTR(EventDispatcher);
 class DebugDispatcher : public EventDispatcher {
     public:
         virtual void onEvent(Event *event);
+        virtual void onIdle();
 };
 
 SPUG_RCPTR(InputDispatcher);
@@ -74,6 +80,7 @@ class InputDispatcher : public EventDispatcher {
                         );
 
         virtual void onEvent(Event *event);
+        virtual void onIdle() {}
 
         void setConsumer(EventDispatcher *consumer);
 

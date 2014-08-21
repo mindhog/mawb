@@ -25,6 +25,10 @@ void DebugDispatcher::onEvent(Event *event) {
     cout << "Got event " << *event << endl;
 }
 
+void DebugDispatcher::onIdle() {
+    cout << "Set to idle" << endl;
+}
+
 void InputDispatcher::onEvent(Event *event) {
     uint32 t = timeMaster->getTicks();
     event->time = t;
@@ -101,6 +105,12 @@ void Controller::setState(mawb::SequencerState newState) {
 
     switch (newState) {
         case IDLE:
+            // Tell all of the dispatchers.
+            for (DispatcherMap::iterator i = dispatchers.begin();
+                 i != dispatchers.end();
+                 ++i
+                 )
+                i->second->onIdle();
             break;
         case RECORD:
             beginRecording();
