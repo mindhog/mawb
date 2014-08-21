@@ -7,7 +7,7 @@ import socket
 import struct
 import subprocess
 import time
-from Tkinter import Button, Frame, Text, Tk
+from Tkinter import Button, Frame, Text, Tk, LEFT, W
 
 import midi
 import midifile
@@ -129,6 +129,7 @@ class Output:
 
     def info(self, message):
         self.text.insert('end', str(message) + '\n', 'info')
+        self.text.see('end')
 
     error = info
 
@@ -136,7 +137,7 @@ class Commands:
 
     def __init__(self, comm):
         self.comm = comm
-        self.playing = False
+        self.state = IDLE
         self.out = None
 
         # The current channel (the target for commands that affect the
@@ -162,13 +163,13 @@ class Commands:
         return midifile.serializeTrack(track)
 
     def togglePlay(self, event=None):
-        if not self.playing:
+        if self.state == IDLE:
             self.comm.sendRPC(change_sequencer_state = PLAY)
-            self.playing = True
+            self.state = PLAY
             self.out.info('playing')
         else:
             self.comm.sendRPC(change_sequencer_state = IDLE)
-            self.playing = False
+            self.state = IDLE
             self.out.info('paused')
         return 'break'
 
@@ -184,8 +185,15 @@ class Commands:
         return 'break'
 
     def record(self, event):
-        self.comm.sendRPC(set_ticks = 0, change_sequencer_state = RECORD)
-        self.out.info('recording')
+        # If we're already recording, this switches us to "play" mode.
+        if self.state == RECORD:
+            self.comm.sendRPC(change_sequencer_state = PLAY)
+            self.out.info('playing')
+            self.state = PLAY
+        else:
+            self.comm.sendRPC(set_ticks = 0, change_sequencer_state = RECORD)
+            self.state = RECORD
+            self.out.info('recording')
         return 'break'
 
 class MyWin(Frame):
@@ -199,8 +207,8 @@ class MyWin(Frame):
         self.playBtn = Button(self.buttons, text = '>',
                               command = commands.togglePlay
                               )
-        self.playBtn.pack()
-        self.buttons.grid()
+        self.playBtn.pack(side = LEFT)
+        self.buttons.grid(sticky = W)
         commands.out = Output(self.text)
         self.bindCommands(commands)
         self.commands = commands
@@ -229,13 +237,17 @@ class MyWin(Frame):
         return 'break'
 
     def bindCommands(self, commands):
+        top = self.winfo_toplevel()
+        top.bind('<F5>', commands.togglePlay)
+        top.bind('<F6>', commands.record)
+        top.bind('<F7>', commands.restart)
+        top.bind('<F8>', commands.load)
+        top.bind('<F3>', self.shutdown)
+        top.bind('<F2>', commands.save)
+        top.bind('<F1>', self.help)
+
+        # Stuff for the console.
         self.text.insert('insert', bindings)
-        self.text.bind('<F5>', commands.record)
-        self.text.bind('<F7>', commands.restart)
-        self.text.bind('<F3>', self.shutdown)
-        self.text.bind('<F2>', commands.save)
-        self.text.bind('<F8>', commands.load)
-        self.text.bind('<F1>', self.help)
         self.text.bind('<Return>', self.eval)
         self.text.tag_configure('info', foreground = 'green')
 
