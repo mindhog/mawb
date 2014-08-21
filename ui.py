@@ -130,6 +130,8 @@ class Output:
     def info(self, message):
         self.text.insert('end', str(message) + '\n', 'info')
 
+    error = info
+
 class Commands:
 
     def __init__(self, comm):
@@ -207,16 +209,24 @@ class MyWin(Frame):
     def eval(self, event):
         cmd = self.text.get('insert linestart', 'insert')
         cmd = cmd.split()
+
+        # We're usurping the "return" key, we need to insert a return
+        # character before any command or error output.
+        self.text.mark_set('insert', 'insert lineend')
+        self.text.insert('insert', '\n')
+
         try:
             commandObj = commands[cmd[0]]
         except KeyError:
             self.commands.out.info('No such command %s' % cmd[0])
-        commandObj(self.commands, *cmd[1:])
+            return 'break'
 
-        if cmd[0] == 'p':
-            val = int(cmd[1:])
-        else:
-            self.text.insert('end', 'Unrecognized command\n')
+        try:
+            commandObj(self.commands, *cmd[1:])
+        except:
+            self.commands.out.error(traceback.format_exc())
+
+        return 'break'
 
     def bindCommands(self, commands):
         self.text.insert('insert', bindings)
@@ -266,6 +276,7 @@ def run():
 
     # Stuff that should clearly be elsewhere.
     subprocess.call(['aconnect', '130:0', '129:1'])
+    subprocess.call(['aconnect', '24:0', '129:1'])
     subprocess.call(['jack_connect', 'fluidsynth:l_00', 'system:playback_1'])
     subprocess.call(['jack_connect', 'fluidsynth:r_00', 'system:playback_2'])
 
