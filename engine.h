@@ -133,6 +133,10 @@ class TimeMaster {
         // Set the current time to the specified value.
         void setTicks(uint32 time);
 
+        // Restarts the clock (by setting lastAbsTime to now but leaving
+        // "ticks" alone).
+        void restart();
+
         // Set the current tempo.
         void setBPM(uint32 bpm) {
             this->bpm = bpm;
