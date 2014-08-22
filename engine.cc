@@ -94,6 +94,10 @@ void TimeMaster::setTicks(uint32 time) {
     lastAbsTime = Time::now();
 }
 
+void TimeMaster::restart() {
+    lastAbsTime = Time::now();
+}
+
 Controller::Controller(Reactor &reactor, TimeMaster &timeMaster) :
     reactor(reactor),
     timeMaster(timeMaster) {
@@ -105,18 +109,29 @@ void Controller::setState(mawb::SequencerState newState) {
 
     switch (newState) {
         case IDLE:
-            // Tell all of the dispatchers.
-            for (DispatcherMap::iterator i = dispatchers.begin();
-                 i != dispatchers.end();
-                 ++i
-                 )
-                i->second->onIdle();
+            if (state != IDLE) {
+                // Tell all of the dispatchers.
+                for (DispatcherMap::iterator i = dispatchers.begin();
+                    i != dispatchers.end();
+                    ++i
+                    )
+                    i->second->onIdle();
+
+                // Store the time.
+                timeMaster.getTicks();
+            }
             break;
         case RECORD:
             beginRecording();
             // fall through.
         case PLAY:
         case LATCHED_RECORD:
+
+            // If we're transitioning from idle, restart the clock so we
+            // continue from where we left off.
+            if (state == IDLE)
+                timeMaster.restart();
+
             state = newState;
             runOnce();
             break;
