@@ -8,6 +8,8 @@ import struct
 import subprocess
 import time
 from Tkinter import Button, Frame, Text, Tk, LEFT, W
+from spug.io.proactor import getProactor, DataHandler, INETAddress
+import threading
 
 import midi
 import midifile
@@ -91,14 +93,86 @@ commands = {
     'p': Command('p', [int], setProgram)
 }
 
+class BufferedDataHandler(DataHandler):
+    """
+        The proactor data handler that manages our connection to the daemon.
+
+        This class is mostly pretty general, and could be refactored out into
+        the proactor library.  The process() method should become abstract.
+    """
+
+    def __init__(self):
+        self.__outputBuffer = ''
+        self._inputBuffer = ''
+        self.closeFlag = False
+        self.control = getProactor().makeControlQueue(self.__onControlEvent)
+
+    def readyToGet(self):
+        return self.__outputBuffer
+
+    def readyToPut(self):
+        return True
+
+    def readyToClose(self):
+        return self.closeFlag
+
+    def peek(self, size):
+        return self.__outputBuffer[:size]
+
+    def get(self, size):
+        self.__outputBuffer = self.__outputBuffer[size:]
+
+    def put(self, data):
+        self._inputBuffer += data
+        self.process()
+
+    def process(self):
+        """
+            This gets called every time data is added to the input buffer.
+            It consumes a complete RPC message if there is one and dispatches
+            it to the appropriate handler.
+        """
+        print 'got buffer %r' % self._inputBuffer
+        self._inputBuffer = ''
+
+    def __onControlEvent(self, event):
+        """
+            Handler for events coming in on the control queue.
+
+            parms:
+                event: [str]  Currently this is just data to be added to the
+                    out-buffer.
+        """
+        self.__outputBuffer += event
+
+    # External interface.
+
+    def queueForOutput(self, data):
+        """
+            Queues a piece of data to be sent over the connection.
+
+            parms:
+                data: [str]
+        """
+        self.control.add(data)
+
+    def close(self):
+        """Close the connection."""
+        self.control.close()
+        self.control.add('')
+        self.closeFlag = True
+
 class Comm:
 
     def __init__(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-        self.sock.connect(('127.0.0.1', 8193))
+        self.handler = BufferedDataHandler()
+        self.conn = getProactor().makeConnection(
+            INETAddress('127.0.0.1', 8193),
+            self.handler
+        )
 
     def close(self):
-        self.sock.close()
+        self.handler.close()
 
     def sendRPC(self, **kwargs):
         rpc = RPC()
@@ -120,7 +194,7 @@ class Comm:
             rpc.set_input_params.CopyFrom(kwargs['set_input_params'])
         parcel = rpc.SerializeToString()
         data = struct.pack('<I', len(parcel)) + parcel
-        self.sock.send(data)
+        self.handler.queueForOutput(data)
 
 class Output:
 
@@ -293,11 +367,19 @@ def run():
     subprocess.call(['jack_connect', 'fluidsynth:r_00', 'system:playback_2'])
 
     comm = Comm()
+
+    # Start the proactor thread.  We do this after Comm() has been created so
+    # there are connections to manage, otherwise the proactor will just
+    # immediately terminate.
+    proactorThread = threading.Thread(target = getProactor().run)
+    proactorThread.start()
+
     try:
         commands = Commands(comm)
         win = MyWin(Tk(), commands)
         win.mainloop()
     finally:
         comm.close()
+        proactorThread.join()
 
 run()
