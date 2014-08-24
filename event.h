@@ -187,6 +187,15 @@ class Track : public spug::RCBase {
          * Read an entire track from the array of bytes.
          */
         static TrackPtr readFromMidi(const byte *data, size_t size);
+        static TrackPtr readFromMidi(const std::string &data) {
+            return readFromMidi(
+                reinterpret_cast<const byte *>(data.data()),
+                data.size()
+            );
+        }
+
+        /** Format the track to the output stream as a sequence of events. */
+        void formatTo(std::ostream &out) const;
 };
 
 /**
@@ -226,5 +235,7 @@ inline std::ostream &operator <<(std::ostream &out, const awb::Event &event) {
     event.formatTo(out);
     return out;
 }
+
+std::ostream &operator <<(std::ostream &out, const awb::Track &event);
 
 #endif
