@@ -196,11 +196,20 @@ TrackPtr MidiReader::readTrack(const char *name) {
         if (!evt)
             break;
         evt->time = t;
-        cerr << "read event " << *evt << endl;
         track->add(evt.get());
 //            if (evt.isa(EndTrack))
 //                break;
     }
 
     return track;
+}
+
+std::ostream &operator <<(ostream &out, const Track &track) {
+    out << "track {\n";
+    for (int i = 0; i < track.size(); ++i) {
+        track.get(i)->formatTo(out);
+        out << ",\n";
+    }
+    out << "}\n";
+    return out;
 }
