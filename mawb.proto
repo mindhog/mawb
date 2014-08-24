@@ -53,6 +53,23 @@ message PBTrack {
     optional bytes events = 2;
 }
 
+// This is the all-purpose response message for all of the
+message Response {
+    // The original message id that this is a response to.
+    optional int32 msg_id = 1;
+
+    // The complete project object.
+    optional Project project = 2;
+}
+
+// Load a complete project state from a file into the daemon.
+message LoadState {
+    optional int32 msg_id = 1;
+
+    // Name of a file to load the state from.
+    optional string filename = 2;
+}
+
 // Sets the initial state of an event dispatcher.
 // The initial state is a set of midi events that are sent to the event
 // dispatcher at the time when this message is sent and when the timer is set
@@ -91,7 +108,7 @@ message RPC {
     optional string save_state = 5;
 
     // Load the current state from the specified file.
-    optional string load_state = 6;
+    optional LoadState load_state = 6;
 
     // Add a new track to the current section of the project.
     optional PBTrack add_track = 7;

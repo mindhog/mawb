@@ -19,6 +19,7 @@ namespace spug {
 
 using namespace awb;
 using namespace google::protobuf::io;
+using namespace google::protobuf;
 using namespace mawb;
 using namespace std;
 using namespace spug;
@@ -78,8 +79,38 @@ class ConnectionHandler : public Reactable {
             controller.saveState(filename);
         }
 
-        void processLoadState(const string &filename) {
-            controller.loadState(filename);
+        // Serialize the message to the output buffer to be sent as soon as
+        // possible.
+        void sendMessage(Message &msg) {
+            // Serialize the message.
+            string serializedMsg;
+            msg.SerializeToString(&serializedMsg);
+
+            // Stick the current output buffer into the temporary.
+            ostringstream temp;
+            temp << outData;
+
+            // Serialize the size.
+            size_t size = serializedMsg.size();
+            temp << static_cast<byte>(size & 0xff)
+                 << static_cast<byte>((size >> 8) & 0xff)
+                 << static_cast<byte>((size >> 16) & 0xff)
+                 << static_cast<byte>(size >> 24);
+
+            // Tack on the message
+            temp << serializedMsg;
+            outData = temp.str();
+        }
+
+        void processLoadState(const LoadState &message) {
+            Project project = controller.loadState(message.filename());
+
+            if (message.has_msg_id()) {
+                Response resp;
+                resp.set_msg_id(message.msg_id());
+                resp.mutable_project()->CopyFrom(project);
+                sendMessage(resp);
+            }
         }
 
         // Processes the message, returns 'true' if the message is so far

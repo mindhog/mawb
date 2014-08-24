@@ -215,7 +215,7 @@ void Controller::saveState(const string &name) const {
     project.SerializeToOstream(&fileOutput);
 }
 
-void Controller::loadState(const string &name) {
+Project Controller::loadState(const string &name) {
     Project project;
     ifstream fileInput(name.c_str());
     project.ParseFromIstream(&fileInput);
@@ -242,6 +242,8 @@ void Controller::loadState(const string &name) {
             );
         }
     }
+
+    return project;
 }
 
 void Controller::setDispatcher(const string &name,
