@@ -1,15 +1,17 @@
 # Initial command-line user-interface.
 # Will turn this into a real UI at some point.
 
-from mawb_pb2 import PBTrack, SetInitialState, SetInputParams, RPC, RECORD, \
-    IDLE, PLAY
+from mawb_pb2 import PBTrack, SetInitialState, SetInputParams, Response, RPC, \
+    RECORD, IDLE, PLAY
 import socket
 import struct
 import subprocess
 import time
 from Tkinter import Button, Frame, Text, Tk, LEFT, W
 from spug.io.proactor import getProactor, DataHandler, INETAddress
+import random
 import threading
+import traceback
 
 import midi
 import midifile
@@ -93,6 +95,41 @@ commands = {
     'p': Command('p', [int], setProgram)
 }
 
+class EventData:
+    """
+        We can send Tk events from other threads, but we can't store any
+        information in them other than a specific set of fields defined by
+        Tkinter.  EventData is a global repository that lets us store whatever
+        we want and reference it as an integer from the event's 'x' field.
+    """
+
+    def __init__(self):
+        self.__lock = threading.Lock()
+        self.__data = {}
+
+    def store(self, data):
+        """
+            Stores 'data' (which can be of any type) and returns an integer
+            identifier to be stored in an event's 'x' field that can be used
+            to look it up.
+        """
+        with self.__lock:
+            key = random.randint(0, 0xFFFF)
+            while key in self.__data:
+                key = random.randint(0, 0xFFFF)
+            self.__data[key] = data
+            return key
+
+    def get(self, key):
+        """
+            Returns the data stored under the specified key, and removes the
+            data from the store.  After this, the key may be reused.
+        """
+        with self.__lock:
+            return self.__data.pop(key)
+
+eventData = EventData()
+
 class BufferedDataHandler(DataHandler):
     """
         The proactor data handler that manages our connection to the daemon.
@@ -106,6 +143,7 @@ class BufferedDataHandler(DataHandler):
         self._inputBuffer = ''
         self.closeFlag = False
         self.control = getProactor().makeControlQueue(self.__onControlEvent)
+        self.__messageCallbacks = {}
 
     def readyToGet(self):
         return self.__outputBuffer
@@ -132,8 +170,30 @@ class BufferedDataHandler(DataHandler):
             It consumes a complete RPC message if there is one and dispatches
             it to the appropriate handler.
         """
-        print 'got buffer %r' % self._inputBuffer
-        self._inputBuffer = ''
+        # Return if we don't have a complete message in the buffer.
+        if len(self._inputBuffer) < 4:
+            return
+        size, = struct.unpack('<I', self._inputBuffer[:4])
+        if len(self._inputBuffer) < size + 4:
+            return
+
+        # Now parse the message.
+        serializedMessage = self._inputBuffer[4:size + 4]
+        self._inputBuffer = self._inputBuffer[size + 4:]
+        resp = Response()
+        resp.ParseFromString(serializedMessage)
+
+        # Find the registered callback and call it.
+        try:
+            callback = self.__messageCallbacks[resp.msg_id]
+        except KeyError:
+            print 'Response received with unknown message id %s' % resp.msg_id
+            return
+        try:
+            callback(resp)
+        except:
+            print 'Exception in callback:'
+            traceback.print_exc()
 
     def __onControlEvent(self, event):
         """
@@ -156,6 +216,17 @@ class BufferedDataHandler(DataHandler):
         """
         self.control.add(data)
 
+    def registerMessageCallback(self, msgId, callback):
+        """
+            Registers the function to be called when the response to the
+            message with the specified id is received.
+
+            parms:
+                msgId: [int] xxx
+
+        """
+        self.__messageCallbacks[msgId] = callback
+
     def close(self):
         """Close the connection."""
         self.control.close()
@@ -170,9 +241,15 @@ class Comm:
             INETAddress('127.0.0.1', 8193),
             self.handler
         )
+        self.__nextMsgId = 0
 
     def close(self):
         self.handler.close()
+
+    def __getMsgId(self):
+        msgId = self.__nextMsgId
+        self.__nextMsgId += 1
+        return msgId
 
     def sendRPC(self, **kwargs):
         rpc = RPC()
@@ -185,13 +262,17 @@ class Comm:
         if 'save_state' in kwargs:
             rpc.save_state = kwargs['save_state']
         if 'load_state' in kwargs:
-            rpc.load_state = kwargs['load_state']
+            rpc.load_state.msg_id = msgId = self.__getMsgId()
+            rpc.load_state.filename = kwargs['load_state']
         if 'add_track' in kwargs:
             rpc.add_track.CopyFrom(kwargs['add_track'])
         if 'set_initial_state' in kwargs:
             rpc.set_initial_state.add().CopyFrom(kwargs['set_initial_state'])
         if 'set_input_params' in kwargs:
             rpc.set_input_params.CopyFrom(kwargs['set_input_params'])
+        if 'callback' in kwargs:
+            callback = kwargs['callback']
+            self.handler.registerMessageCallback(msgId, callback)
         parcel = rpc.SerializeToString()
         data = struct.pack('<I', len(parcel)) + parcel
         self.handler.queueForOutput(data)
@@ -200,10 +281,16 @@ class Output:
 
     def __init__(self, text):
         self.text = text
+        self.text.bind('<<text>>', self.__onText)
+
+    def __onText(self, event):
+        text = eventData.get(event.x)
+        self.text.insert('end', text + '\n', 'info')
+        self.text.see('end')
 
     def info(self, message):
-        self.text.insert('end', str(message) + '\n', 'info')
-        self.text.see('end')
+        # We do this via an event so it will work from any thread.
+        self.text.event_generate('<<text>>', x = eventData.store(message))
 
     error = info
 
@@ -250,8 +337,33 @@ class Commands:
     def save(self, event):
         self.comm.sendRPC(save_state = self.filename)
 
+    def __restoreInitializers(self, project):
+        self.initializers = {}
+        for disp in project.dispatchers:
+            if disp.name == 'fluid':
+                track = disp.initial_state
+                break
+        else:
+            # No initializers.
+            return
+
+        # Parse the program change events out of the track.
+        track = midifile.readTrack(track, 'track-name')
+        for event in track:
+            if isinstance(event, midi.ProgramChange):
+                print 'storing program change %d %d' % (event.channel,
+                                                        event.program)
+                self.initializers[event.channel] = event.program
+
     def load(self, event):
-        self.comm.sendRPC(load_state = self.filename)
+
+        def loaded(resp):
+            self.__restoreInitializers(resp.project)
+            self.out.info('loaded project')
+
+        self.comm.sendRPC(load_state = self.filename,
+                          callback = loaded
+                          )
 
     def restart(self, event):
         self.comm.sendRPC(set_ticks = 0)

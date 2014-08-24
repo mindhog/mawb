@@ -222,8 +222,9 @@ class Controller : public spug::Runnable {
 
         /**
          * Load the state from the specified state file.
+         * Returns the project message objects.
          */
-        void loadState(const std::string &filename);
+        mawb::Project loadState(const std::string &filename);
 
         /**
          * Register an event dispatcher under the given name.
