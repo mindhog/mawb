@@ -64,7 +64,6 @@ message Response {
 
 // Load a complete project state from a file into the daemon.
 message LoadState {
-    optional int32 msg_id = 1;
 
     // Name of a file to load the state from.
     optional string filename = 2;
@@ -90,10 +89,13 @@ message SetInputParams {
 }
 
 message RPC {
-    // Begin Recording. - create a record track, add it to an input.
 
-    // Add nodes to an existing configuration.
-    repeated Config add_nodes = 1;
+    // A message identifier.  If this is present, a Response message will be
+    // sent back with the same message id.  Otherwise, no response will be
+    // returned.
+    optional int32 msg_id = 1;
+
+    // Begin Recording. - create a record track, add it to an input.
 
     // Test function.  Echoes the text to the console.
     repeated string echo = 2;
