@@ -97,20 +97,16 @@ class ConnectionHandler : public Reactable {
                  << static_cast<byte>((size >> 16) & 0xff)
                  << static_cast<byte>(size >> 24);
 
-            // Tack on the message
+            // Tack on the message and add it to the buffer to be sent.
             temp << serializedMsg;
             outData = temp.str();
         }
 
-        void processLoadState(const LoadState &message) {
+        void processLoadState(const LoadState &message, Response *resp) {
             Project project = controller.loadState(message.filename());
 
-            if (message.has_msg_id()) {
-                Response resp;
-                resp.set_msg_id(message.msg_id());
-                resp.mutable_project()->CopyFrom(project);
-                sendMessage(resp);
-            }
+            if (resp)
+                resp->mutable_project()->CopyFrom(project);
         }
 
         // Processes the message, returns 'true' if the message is so far
@@ -133,9 +129,17 @@ class ConnectionHandler : public Reactable {
                 if (inData.size() < size + 4)
                     return true;
 
-                // Process all of the messages.
+                // Process all of the requests in the RPC message.
                 mawb::RPC rpc;
                 rpc.ParseFromString(inData.substr(4));
+
+                // If there is a message id, create a response.
+                Response *resp = 0;
+                if (rpc.has_msg_id()) {
+                    resp = new Response();
+                    resp->set_msg_id(rpc.msg_id());
+                }
+
                 if (rpc.echo_size()) {
                     for (int i = 0; i < rpc.echo_size(); ++i)
                         processEcho(rpc.echo(i));
@@ -163,7 +167,7 @@ class ConnectionHandler : public Reactable {
                     processSaveState(rpc.save_state());
 
                 if (rpc.has_load_state())
-                    processLoadState(rpc.load_state());
+                    processLoadState(rpc.load_state(), resp);
 
                 if (rpc.has_add_track()) {
                     controller.addTrack(rpc.add_track());
@@ -176,6 +180,13 @@ class ConnectionHandler : public Reactable {
 
                 // Truncate the used portion of the buffer.
                 inData = inData.substr(size + 4);
+
+                // Send the response, if requested.
+                if (resp) {
+                    sendMessage(*resp);
+                    delete resp;
+                }
+
             }
             return true;
         }

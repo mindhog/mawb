@@ -262,7 +262,6 @@ class Comm:
         if 'save_state' in kwargs:
             rpc.save_state = kwargs['save_state']
         if 'load_state' in kwargs:
-            rpc.load_state.msg_id = msgId = self.__getMsgId()
             rpc.load_state.filename = kwargs['load_state']
         if 'add_track' in kwargs:
             rpc.add_track.CopyFrom(kwargs['add_track'])
@@ -271,6 +270,7 @@ class Comm:
         if 'set_input_params' in kwargs:
             rpc.set_input_params.CopyFrom(kwargs['set_input_params'])
         if 'callback' in kwargs:
+            rpc.msg_id = msgId = self.__getMsgId()
             callback = kwargs['callback']
             self.handler.registerMessageCallback(msgId, callback)
         parcel = rpc.SerializeToString()
