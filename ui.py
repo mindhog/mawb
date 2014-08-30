@@ -7,7 +7,7 @@ import socket
 import struct
 import subprocess
 import time
-from Tkinter import Button, Frame, Text, Tk, LEFT, W
+from Tkinter import Button, Entry, Frame, Label, Text, Tk, LEFT, W
 from spug.io.proactor import getProactor, DataHandler, INETAddress
 import random
 import threading
@@ -67,6 +67,7 @@ def setChannel(context, channel):
     req.output_channel = channel
     context.comm.sendRPC(set_input_params = req)
     context.out.info('Current channel is %d' % channel)
+    context.notify('<<channel-change>>', channel)
 
 def setProgram(context, program):
     """
@@ -89,6 +90,7 @@ def setProgram(context, program):
     context.comm.sendRPC(set_initial_state = setState)
 
     context.out.info('Set program to %d' % program)
+    context.notify('<<program-change>>', program)
 
 commands = {
     'ch': Command('ch', [int], setChannel),
@@ -300,6 +302,7 @@ class Commands:
         self.comm = comm
         self.state = IDLE
         self.out = None
+        self.window = None
 
         # The current channel (the target for commands that affect the
         # chennel).  When we do setChannel() (the "ch" command) this is synced
@@ -312,6 +315,10 @@ class Commands:
         self.initializers = {}
 
         self.filename = 'noname.mawb'
+
+    def notify(self, eventName, param):
+        """Sends a virtual event to the user interface."""
+        self.window.event_generate(eventName, x = eventData.store(param))
 
     def getInitializerString(self):
         """
@@ -382,6 +389,36 @@ class Commands:
             self.out.info('recording')
         return 'break'
 
+def setROField(field, value):
+    """
+        Helper function to set the value of a read-only field.
+
+        parms:
+            field: [Tkinter.Entry]
+            value: [str]
+    """
+    field.configure(state = 'normal')
+    field.delete(0, 'end')
+    field.insert(0, value)
+    field.configure(state = 'readonly')
+
+
+def makeROEntry(parent, row, column, label, initVal):
+    lbl = Label(parent, text = label)
+    lbl.grid(row = row, column = column)
+    entry = Entry(parent)
+    entry.grid(row = row, column = column + 1)
+    entry['readonly'] = 'gray10'
+    entry.insert(0, initVal)
+    entry['state'] = 'readonly'
+    return lbl, entry
+
+def getProgramName(program):
+    """
+        Returns the string program name for the given program number.
+    """
+    return '%d %s' % (program, midi.programs[program])
+
 class MyWin(Frame):
 
     def __init__(self, top, commands):
@@ -389,16 +426,39 @@ class MyWin(Frame):
         self.text = Text(self)
         self.text.grid()
 
+        commands.window = self
+        self.bind('<<channel-change>>', self.__onChannelChange)
+        self.bind('<<program-change>>', self.__onProgramChange)
+
         self.buttons = Frame(self)
         self.playBtn = Button(self.buttons, text = '>',
                               command = commands.togglePlay
                               )
         self.playBtn.pack(side = LEFT)
         self.buttons.grid(sticky = W)
+
+        self.status = Frame(self)
+        self.status.channelLbl, self.status.channelTxt = \
+            makeROEntry(self.status, 0, 0, 'Channel:', '0')
+        self.status.programLbl, self.status.programTxt = \
+            makeROEntry(self.status, 0, 2, 'Program:', getProgramName(0))
+        self.status.grid(sticky = W)
+
         commands.out = Output(self.text)
         self.bindCommands(commands)
         self.commands = commands
         self.grid()
+
+    def __setProgramField(self, program):
+        setROField(self.status.programTxt, getProgramName(program))
+
+    def __onChannelChange(self, event):
+        channel = eventData.get(event.x)
+        setROField(self.status.channelTxt, str(channel))
+        self.__setProgramField(self.commands.initializers.get(channel, 0))
+
+    def __onProgramChange(self, event):
+        self.__setProgramField(eventData.get(event.x))
 
     def eval(self, event):
         cmd = self.text.get('insert linestart', 'insert')
