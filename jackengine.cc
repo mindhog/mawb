@@ -4,8 +4,8 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <atomic_ops.h>
 
+#include <atomic>
 #include <iostream>
 #include <vector>
 
@@ -59,8 +59,8 @@ class JackEngineImpl : public JackEngine {
         jack_client_t *client;
         jack_port_t *in1, *in2, *out1, *out2;
         size_t arenaSize;
-        std::vector<Channel> channels;
-        size_t recordChannel, playing;
+        vector<Channel> channels;
+        atomic_int recordChannel, playing;
 
         JackEngineImpl(const char *name) :
                 client(0),
@@ -114,7 +114,7 @@ void JackEngine::process(unsigned int nframes) {
         jack_port_get_buffer(impl->out2, nframes));
 
     // Process input.
-    int recordChannel = AO_load(&impl->recordChannel);
+    int recordChannel = impl->recordChannel.load(std::memory_order_relaxed);
     if (recordChannel != -1) {
         // Allocate a new buffer for the channel if necessary.
         Channel *channel;
@@ -140,7 +140,7 @@ void JackEngine::process(unsigned int nframes) {
         }
     }
 
-    if (AO_load(&impl->playing)) {
+    if (impl->playing.load(std::memory_order_relaxed)) {
         int channelIndex = 0;
         for (Channel &channel : impl->channels) {
             if (channel.enabled && recordChannel != channelIndex) {
@@ -157,22 +157,22 @@ void JackEngine::process(unsigned int nframes) {
 
 void JackEngine::startRecord(int channel) {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
-    AO_store(&impl->recordChannel, channel);
+    impl->recordChannel.store(channel, std::memory_order_relaxed);
 }
 
 void JackEngine::endRecord() {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
-    AO_store(&impl->recordChannel, -1);
+    impl->recordChannel.store(-1, std::memory_order_relaxed);
 }
 
 void JackEngine::startPlay() {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
-    AO_store(&impl->playing, 1);
+    impl->playing.store(1, std::memory_order_relaxed);
 }
 
 void JackEngine::endPlay() {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
-    AO_store(&impl->playing, 0);
+    impl->playing.store(0, std::memory_order_relaxed);
 }
 
 int main(int argc, const char **argv) {
