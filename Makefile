@@ -1,6 +1,6 @@
 SRCS = awb alsa engine event fluid mawb.pb
 
-%.o : %.cc
+%.o : %.cc mawb.pb.h
 	mkdir -p .deps
 	g++ -c $*.cc  -std=c++11 -g -MD  -MF .deps/$*.d -o $*.o
 
