@@ -1,5 +1,6 @@
 #include "jackengine.h"
 
+#include <assert.h>
 #include <jack/jack.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -8,6 +9,8 @@
 #include <atomic>
 #include <iostream>
 #include <vector>
+
+#include "wavetree.h"
 
 using namespace std;
 
@@ -18,39 +21,14 @@ static int jack_callback(jack_nframes_t nframes, void *arg) {
 
 namespace {
 
-struct WaveBuf {
-    size_t size;
-    float *buffer;
-    WaveBuf *next;
-
-    WaveBuf(size_t size) :
-        size(size),
-        buffer(new float[size]),
-        next(this) {
-    }
-};
-
 struct Channel {
-    WaveBuf *buf;
+    WaveTree *data;
 
     // "enabled" means that a channel is playing audio.
     bool enabled;
 
     // Create a channel and allocate an initial buffer.
-    Channel(int nframes) : buf(new WaveBuf(nframes)), enabled(true) {}
-
-    WaveBuf *addBuf(int nframes) {
-        WaveBuf *newBuf = new WaveBuf(nframes);
-        newBuf->next = buf->next;
-        buf->next = newBuf;
-        buf = newBuf;
-        return newBuf;
-    }
-
-    WaveBuf *nextBuf() {
-        buf = buf->next;
-        return buf;
-    }
+    Channel() : data(new WaveTree()), enabled(true) {}
 };
 
 class JackEngineImpl : public JackEngine {
@@ -61,11 +39,26 @@ class JackEngineImpl : public JackEngine {
         size_t arenaSize;
         vector<Channel> channels;
         atomic_int recordChannel, playing;
+        atomic_int pos;
+
+        // The end sample position.  At this point, we start looping.
+        int end;
+
+        // Set to true when we process a buffer while recording.  This lets us
+        // keep track of the state changes as we go from recording to not.
+        bool recording;
+
+        // True if the engine has been initialized.
+        bool initialized;
 
         JackEngineImpl(const char *name) :
                 client(0),
                 recordChannel(-1),
-                playing(0) {
+                playing(0),
+                pos(0),
+                end(0),
+                recording(false),
+                initialized(false) {
             jack_status_t status;
             client = jack_client_open(name, static_cast<jack_options_t>(0),
                                       &status);
@@ -103,6 +96,16 @@ JackEngine *JackEngine::create(const char *name) {
 void JackEngine::process(unsigned int nframes) {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
 
+    // Initialize if necessary.
+    if (!impl->initialized) {
+        WaveTree::setBufferSize(nframes * 2);
+        impl->initialized = true;
+    } else {
+        assert(nframes * 2 == WaveTree::getBufferSize());
+    }
+
+    int pos = impl->pos.load(std::memory_order_relaxed);
+
     // Get all of the buffers.
     float *in1Buf = reinterpret_cast<float *>(
         jack_port_get_buffer(impl->in1, nframes));
@@ -116,27 +119,44 @@ void JackEngine::process(unsigned int nframes) {
     // Process input.
     int recordChannel = impl->recordChannel.load(std::memory_order_relaxed);
     if (recordChannel != -1) {
-        // Allocate a new buffer for the channel if necessary.
-        Channel *channel;
-        WaveBuf *buf;
-        if (recordChannel >= impl->channels.size()) {
-            impl->channels.push_back(Channel(nframes * 2));
-            channel = &impl->channels.back();
-            buf = channel->buf;
-        } else {
-            channel = &impl->channels[recordChannel];
-            buf = channel->addBuf(nframes * 2);
+        // If we weren't previously recording, reset the record position to
+        // zero.
+        if (!impl->recording) {
+            if (impl->channels.empty())
+                pos = 0;
+            impl->recording = true;
         }
 
+        // Allocate a new channel if necessary.
+        Channel *channel;
+        if (recordChannel >= impl->channels.size()) {
+            impl->channels.push_back(Channel());
+            channel = &impl->channels.back();
+        } else {
+            channel = &impl->channels[recordChannel];
+        }
+
+        WaveBuf *buf = channel->data->get(pos * 2, true);
         for (int i = 0; i < nframes; ++i) {
             out1Buf[i] = buf->buffer[i * 2] = in1Buf[i];
             out2Buf[i] = buf->buffer[i * 2 + 1] = in2Buf[i];
         }
+
     } else {
         // Not recording, just do a pass-through.
         for (int i = 0; i < nframes; ++i) {
             out1Buf[i] = in1Buf[i];
             out2Buf[i] = in2Buf[i];
+        }
+
+        // If we were recording but are no longer, flip the flag.
+        if (impl->recording)
+            impl->recording = false;
+
+        // if we finished recording the first channel, store the end.
+        if (!impl->end && !impl->channels.empty()) {
+            impl->end = pos;
+            impl->pos.store(0, std::memory_order_relaxed);
         }
     }
 
@@ -144,7 +164,9 @@ void JackEngine::process(unsigned int nframes) {
         int channelIndex = 0;
         for (Channel &channel : impl->channels) {
             if (channel.enabled && recordChannel != channelIndex) {
-                WaveBuf *buf = channel.nextBuf();
+                WaveBuf *buf = channel.data->get(pos * 2);
+                if (!buf) continue;
+
                 for (int i = 0; i < nframes; ++i) {
                     out2Buf[i] += buf->buffer[i * 2];
                     out2Buf[i] += buf->buffer[i * 2 + 1];
@@ -153,6 +175,10 @@ void JackEngine::process(unsigned int nframes) {
             ++channelIndex;
         }
     }
+
+    impl->pos.store(impl->end ? (pos + nframes) % impl->end : (pos + nframes),
+                    std::memory_order_relaxed
+                    );
 }
 
 void JackEngine::startRecord(int channel) {
