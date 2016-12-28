@@ -23,6 +23,7 @@ namespace mawb {
 namespace awb {
 
 class Event;
+class JackEngine;
 class TimeMaster;
 SPUG_RCPTR(Track);
 
@@ -157,6 +158,7 @@ class Controller : public spug::Runnable {
         spug::Reactor &reactor;
         TimeMaster &timeMaster;
         mawb::SequencerState state;
+        JackEngine &jackEngine;
 
         struct TrackInfo {
             TrackPtr track;
@@ -178,7 +180,9 @@ class Controller : public spug::Runnable {
 
     public:
 
-        Controller(spug::Reactor &reactor, TimeMaster &timeMaster);
+        Controller(spug::Reactor &reactor, TimeMaster &timeMaster,
+                   JackEngine &jackEngine
+                   );
         void runOnce();
 
         void setState(mawb::SequencerState state);
@@ -243,6 +247,11 @@ class Controller : public spug::Runnable {
          * Save the state to the specified state file.
          */
         void saveState(const std::string &filename) const;
+
+        /**
+         * Returns the jack engine.
+         */
+        JackEngine &getJackEngine() const { return jackEngine; }
 
         virtual void run();
 
