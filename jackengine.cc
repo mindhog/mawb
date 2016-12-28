@@ -12,6 +12,7 @@
 
 #include "wavetree.h"
 
+using namespace awb;
 using namespace std;
 
 static int jack_callback(jack_nframes_t nframes, void *arg) {
@@ -104,7 +105,7 @@ void JackEngine::process(unsigned int nframes) {
         assert(nframes * 2 == WaveTree::getBufferSize());
     }
 
-    int pos = impl->pos.load(std::memory_order_relaxed);
+    int pos = impl->pos.load(memory_order_relaxed);
 
     // Get all of the buffers.
     float *in1Buf = reinterpret_cast<float *>(
@@ -117,7 +118,7 @@ void JackEngine::process(unsigned int nframes) {
         jack_port_get_buffer(impl->out2, nframes));
 
     // Process input.
-    int recordChannel = impl->recordChannel.load(std::memory_order_relaxed);
+    int recordChannel = impl->recordChannel.load(memory_order_relaxed);
     if (recordChannel != -1) {
         // If we weren't previously recording, reset the record position to
         // zero.
@@ -156,11 +157,12 @@ void JackEngine::process(unsigned int nframes) {
         // if we finished recording the first channel, store the end.
         if (!impl->end && !impl->channels.empty()) {
             impl->end = pos;
-            impl->pos.store(0, std::memory_order_relaxed);
+            impl->pos.store(0, memory_order_relaxed);
         }
     }
 
-    if (impl->playing.load(std::memory_order_relaxed)) {
+    bool playing = impl->playing.load(memory_order_relaxed);
+    if (playing) {
         int channelIndex = 0;
         for (Channel &channel : impl->channels) {
             if (channel.enabled && recordChannel != channelIndex) {
@@ -176,45 +178,40 @@ void JackEngine::process(unsigned int nframes) {
         }
     }
 
-    impl->pos.store(impl->end ? (pos + nframes) % impl->end : (pos + nframes),
-                    std::memory_order_relaxed
-                    );
+    if (playing || recordChannel != -1) {
+        impl->pos.store(impl->end ? (pos + nframes) % impl->end :
+                                    (pos + nframes),
+                        memory_order_relaxed
+                        );
+    }
 }
 
 void JackEngine::startRecord(int channel) {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
-    impl->recordChannel.store(channel, std::memory_order_relaxed);
+    impl->recordChannel.store(channel, memory_order_relaxed);
 }
 
 void JackEngine::endRecord() {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
-    impl->recordChannel.store(-1, std::memory_order_relaxed);
+    impl->recordChannel.store(-1, memory_order_relaxed);
+}
+
+int JackEngine::getRecordChannel() const {
+    const JackEngineImpl *impl = static_cast<const JackEngineImpl *>(this);
+    return impl->recordChannel.load(memory_order_relaxed);
 }
 
 void JackEngine::startPlay() {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
-    impl->playing.store(1, std::memory_order_relaxed);
+    impl->playing.store(1, memory_order_relaxed);
 }
 
 void JackEngine::endPlay() {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
-    impl->playing.store(0, std::memory_order_relaxed);
+    impl->playing.store(0, memory_order_relaxed);
 }
 
-int main(int argc, const char **argv) {
-    JackEngine *engine = JackEngine::create("foobar");
-    engine->startPlay();
-    bool recording = false;
-    int channel = 0;
-    while (true) {
-        char *line = 0;
-        size_t size;
-        getline(&line, &size, stdin);
-        recording = !recording;
-        if (recording)
-            engine->startRecord(channel++);
-        else
-            engine->endRecord();
-        free(line);
-    }
+bool JackEngine::isPlaying() const {
+    const JackEngineImpl *impl = static_cast<const JackEngineImpl *>(this);
+    return impl->playing.load(memory_order_relaxed);
 }

@@ -11,7 +11,9 @@
 #include "engine.h"
 #include "event.h"
 #include "fluid.h"
+#include "jackengine.h"
 #include "mawb.pb.h"
+#include "term.h"
 
 namespace spug {
     SPUG_RCPTR(Reactor);
@@ -317,17 +319,29 @@ int main(int argc, const char **argv) {
         ReactorPtr reactor = Reactor::createReactor();
         reactor->addReactable(new AlsaReactable(sequencer, dispatcher.get()));
 
+        // Create the Jack engine and start it moving.
+        JackEngine *jackEng = JackEngine::create("mawb");
+        jackEng->startPlay();
+
         // Create the controller and register the input and fluid dispatcher
         // with the controller.
-        Controller controller(*reactor, timeMaster);
+        Controller controller(*reactor, timeMaster, *jackEng);
         controller.addInput(dispatcher.get());
         controller.setDispatcher("fluid", fs.get());
 
         // Create the RPC listener.
         reactor->addReactable(new Listener(8193, controller));
 
+        // If we're on a TTY, start the terminal interface.
+        if (Term::isTTY()) {
+            cerr << "Starting terminal interface..." << endl;
+            reactor->addReactable(new Term(*jackEng));
+        }
+
         cerr << "AWB daemon started." << endl;
         reactor->run();
+    } catch (const Term::Quit &ex) {
+        cerr << "Shut down from terminal." << endl;
     } catch (const spug::Exception &ex) {
         cerr << "Got an error: " << ex << endl;
     }

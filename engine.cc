@@ -98,9 +98,12 @@ void TimeMaster::restart() {
     lastAbsTime = Time::now();
 }
 
-Controller::Controller(Reactor &reactor, TimeMaster &timeMaster) :
+Controller::Controller(Reactor &reactor, TimeMaster &timeMaster,
+                       JackEngine &jackEngine
+                       ) :
     reactor(reactor),
-    timeMaster(timeMaster) {
+    timeMaster(timeMaster),
+    jackEngine(jackEngine) {
 }
 
 void Controller::setState(mawb::SequencerState newState) {

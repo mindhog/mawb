@@ -1,4 +1,4 @@
-SRCS = awb alsa engine event fluid mawb.pb
+SRCS = awb alsa engine event fluid mawb.pb term jackengine wavetree
 
 %.o : %.cc mawb.pb.h
 	mkdir -p .deps
@@ -11,7 +11,7 @@ check : event_test wavetree_test
 	wavetree_test
 
 awbd : $(foreach f,$(SRCS),$f.o)
-	g++ $^ -lspug++ -lasound -lfluidsynth -lprotobuf -o awbd
+	g++ $^ -lspug++ -lasound -lfluidsynth -lprotobuf -ljack -o awbd
 
 jawbd : jackengine.o wavetree.o
 	g++ $^ -std=c++11 -ljack -o jawbd
