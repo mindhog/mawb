@@ -133,6 +133,10 @@ void JackEngine::process(unsigned int nframes) {
         if (recordChannel >= impl->channels.size()) {
             impl->channels.push_back(Channel());
             channel = &impl->channels.back();
+            if (recordChannel != impl->channels.size() - 1) {
+                recordChannel = impl->channels.size() - 1;
+                impl->recordChannel.store(recordChannel, memory_order_relaxed);
+            }
         } else {
             channel = &impl->channels[recordChannel];
         }
