@@ -1,0 +1,8 @@
+*.o
+mawb.pb.*
+mawb_pb2.py
+wavetree_test
+event_test
+awbd
+jawbd
+.deps
