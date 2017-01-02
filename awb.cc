@@ -13,6 +13,7 @@
 #include "fluid.h"
 #include "jackengine.h"
 #include "mawb.pb.h"
+#include "serial.h"
 #include "term.h"
 
 namespace spug {
@@ -336,6 +337,13 @@ int main(int argc, const char **argv) {
         if (Term::isTTY()) {
             cerr << "Starting terminal interface..." << endl;
             reactor->addReactable(new Term(*jackEng));
+        }
+
+        // Open the deka-pedal.
+        int pedal = open("/dev/ttyACM0", O_RDONLY);
+        if (pedal != -1) {
+            cerr << "Adding pedal interface\r" << endl;
+            reactor->addReactable(new Serial(pedal, *jackEng));
         }
 
         cerr << "AWB daemon started.\r" << endl;
