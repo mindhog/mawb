@@ -5,6 +5,19 @@ namespace awb {
 
 class JackEngine {
     public:
+
+        enum RecordMode {
+
+            // When recording past the end of the current measure, wrap around
+            // to the beginning of the buffer.
+            wrap,
+
+            // If we record past the end, continue recording and quantize to
+            // the span to the new position.
+            expand,
+        };
+
+
         static JackEngine *create(const char *name);
 
         // Process some number of frames.
@@ -12,6 +25,7 @@ class JackEngine {
 
         void startRecord(int channel);
         void endRecord();
+        void setRecordMode(RecordMode mode);
 
         // Returns the channel that is currently being recorded, -1 if not
         // recording.
@@ -20,6 +34,9 @@ class JackEngine {
         void startPlay();
         void endPlay();
         bool isPlaying() const;
+
+        // Clear all buffers, restore the engine to a pristine state.
+        void clear();
 };
 
 } // namespace awb

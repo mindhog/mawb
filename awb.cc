@@ -338,7 +338,7 @@ int main(int argc, const char **argv) {
             reactor->addReactable(new Term(*jackEng));
         }
 
-        cerr << "AWB daemon started." << endl;
+        cerr << "AWB daemon started.\r" << endl;
         reactor->run();
     } catch (const Term::Quit &ex) {
         cerr << "Shut down from terminal." << endl;

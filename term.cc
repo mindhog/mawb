@@ -52,6 +52,9 @@ void Term::handleRead(spug::Reactor &reactor) {
                 jackEngine.endPlay();
             else
                 jackEngine.startPlay();
+        } else if (ch == 'K') {
+            jackEngine.clear();
+            cerr << "\033[31;43mDeleted\033[0m\r" << endl;
         } else if (ch == 'q') {
             throw Quit();
         }
