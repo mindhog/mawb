@@ -1,4 +1,4 @@
-SRCS = awb alsa engine event fluid mawb.pb term jackengine wavetree
+SRCS = awb alsa engine event fluid mawb.pb term jackengine wavetree serial
 
 %.o : %.cc mawb.pb.h
 	mkdir -p .deps
