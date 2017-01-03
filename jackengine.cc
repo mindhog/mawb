@@ -334,7 +334,7 @@ void JackEngine::process(unsigned int nframes) {
                 if (!buf) continue;
 
                 for (int i = 0; i < nframes; ++i) {
-                    out2Buf[i] += buf->buffer[i * 2];
+                    out1Buf[i] += buf->buffer[i * 2];
                     out2Buf[i] += buf->buffer[i * 2 + 1];
                 }
             }
