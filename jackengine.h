@@ -8,13 +8,18 @@ class JackEngine {
 
         enum RecordMode {
 
-            // When recording past the end of the current measure, wrap around
+            // When recording past the end of the current span, wrap around
             // to the beginning of the buffer.
             wrap,
 
             // If we record past the end, continue recording and quantize to
             // the span to the new position.
             expand,
+
+            // Allow recording past the end of the span, like in expand mode,
+            // but also let the current record drive when it is looped so that
+            // we can begin looping in the same span that we ended in.
+            spanRelative,
         };
 
 

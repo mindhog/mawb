@@ -28,8 +28,13 @@ struct Channel {
     // "enabled" means that a channel is playing audio.
     bool enabled;
 
-    // The end position of the data stored in the channel.
+    // The end position of the loop stored in the channel.
     int end;
+
+    // If non-zero, this is the "loop position" in span relative mode.  During
+    // lookup, values before the loop position are offset by 'end', having the
+    // effect of wraping around in the channel's span.
+    int loopPos;
 
     // The position at the time we began recording the current channel (this
     // is only meaningful when the channel is being recorded)
@@ -48,6 +53,7 @@ struct Channel {
         data(new WaveTree()),
         enabled(true),
         end(0),
+        loopPos(0),
         startPos(0),
         offset(0) {
     }
@@ -61,10 +67,13 @@ struct Channel {
         return *this;
     }
 
+    // Steal the contents of 'other'.  This is the implementation of move
+    // construction and assignment.
     void take(Channel &other) {
         data = other.data;
         enabled = other.enabled;
         end = other.end;
+        loopPos = other.loopPos;
         startPos = other.startPos;
         offset = other.offset;
         other.data = 0;
@@ -82,6 +91,11 @@ struct Channel {
     WaveBuf *getReadBuffer(int pos) {
         cerr << pos;
         pos = (end ? pos % end : pos) + offset;
+
+        // wrap to the end if necessary.
+        if (pos < loopPos)
+            pos += end;
+
         cerr << " (" << pos << ") " << flush;
 
         return data->get(pos * 2, false);
@@ -127,6 +141,11 @@ class JackEngineImpl : public JackEngine {
         // True if the engine has been initialized.
         bool initialized;
 
+        // The denominator of the fraction of a second of error margin used in
+        // determining loop alignment.  For example, 4 would be a quarter
+        // second.
+        int errorMargin = 4;
+
         JackEngineImpl(const char *name) :
                 client(0),
                 recordChannel(-1),
@@ -134,7 +153,7 @@ class JackEngineImpl : public JackEngine {
                 pos(0),
                 command(noopCmd),
                 end(0),
-                recordMode(expand),
+                recordMode(spanRelative),
                 recording(false),
                 lastRecordChannel(-1),
                 initialized(false) {
@@ -288,7 +307,8 @@ void JackEngine::process(unsigned int nframes) {
                 // (human error) in expand mode, we want to adjust the end to
                 // be the first multiple of end that is greater than the
                 // current pos.
-                if (pos - channel.offset > end + framesPerSecond / 10) {
+                if (pos - channel.offset > end +
+                    framesPerSecond / impl->errorMargin) {
                     int localPos = pos - channel.offset;
                     int multiple = localPos / end;
 
@@ -298,13 +318,28 @@ void JackEngine::process(unsigned int nframes) {
                     // we'd want a multiple of 2. But only do this if we
                     // exceeed the last boundary by the "jitter delay" (so,
                     // for example, 1.1 seconds would still count as just 1).
-                    if (localPos - end * multiple > framesPerSecond / 10)
+                    if (localPos - end * multiple >
+                         framesPerSecond / impl->errorMargin)
                         ++multiple;
                     localPos = end * multiple;
 
                     end = localPos;
                     cerr << "changed end to " << end << " (multiple of " <<
                         multiple << ")\r" << endl;
+                }
+            } else if (impl->recordMode == JackEngineImpl::spanRelative && end) {
+
+                // If the new span exceeds the old span, adjust the ending to
+                // be at the beginning of the last frame.  Otherwise, this is
+                // just like wrap mode.
+                if (pos - channel.startPos > end +
+                     framesPerSecond / impl->errorMargin
+                    ) {
+                    // Quantize around the size of the span.
+                    end = ((pos - channel.startPos) / end + 1) * end;
+                    channel.loopPos = channel.startPos;
+                } else {
+                    channel.loopPos = 0;
                 }
             }
 
@@ -314,7 +349,8 @@ void JackEngine::process(unsigned int nframes) {
                 impl->pos.store(0, memory_order_relaxed);
             }
 
-            channel.end = end;
+            if (!channel.end)
+                channel.end = end;
             cerr << "recorded channel {offset: " << channel.offset <<
                 ", end = " << channel.end << "} engine end = " << end <<
                 "\r" << endl;
