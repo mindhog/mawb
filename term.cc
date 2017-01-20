@@ -4,13 +4,14 @@
 #include <unistd.h>
 
 #include <iostream>
+#include <fstream>
 
 #include "jackengine.h"
 
 using namespace awb;
 using namespace std;
 
-Term::Term(JackEngine &jackEngine) : jackEngine(jackEngine) {
+Term::Term(JackEngine &jackEngine) : jackEngine(jackEngine), mode(KEY_CMD) {
     // Switch to "raw" mode.
     struct termios mode;
     tcgetattr(/*file_descriptor*/ 0, &mode);
@@ -36,28 +37,72 @@ void Term::handleRead(spug::Reactor &reactor) {
 
     for (int i = 0; i < amtRead; ++i) {
         char ch = buffer[i];
-        if (ch >= '0' && ch <= '9') {
-            int curRecordChannel = jackEngine.getRecordChannel();
-            if (curRecordChannel == -1) {
-                jackEngine.startRecord(ch - '0');
-                cerr << "Recording on channel " <<
-                    jackEngine.getRecordChannel() << "\r" << endl;
-            } else {
-                cerr << "Finished recording on channel " << curRecordChannel <<
-                    "\r" << endl;
-                jackEngine.endRecord();
+        if (mode == KEY_CMD) {
+            if (ch >= '0' && ch <= '9') {
+                int curRecordChannel = jackEngine.getRecordChannel();
+                if (curRecordChannel == -1) {
+                    jackEngine.startRecord(ch - '0');
+                    cerr << "Recording on channel " <<
+                        jackEngine.getRecordChannel() << "\r" << endl;
+                } else {
+                    cerr << "Finished recording on channel " << curRecordChannel <<
+                        "\r" << endl;
+                    jackEngine.endRecord();
+                }
+            } else if (ch == ' ') {
+                if (jackEngine.isPlaying())
+                    jackEngine.endPlay();
+                else
+                    jackEngine.startPlay();
+            } else if (ch == 'K') {
+                jackEngine.clear();
+                cerr << "\033[31;43mDeleted\033[0m\r\n\033[K" << flush;
+            } else if (ch == 'q') {
+                throw Quit();
+            } else if (ch == 's') {
+                if (jackEngine.isPlaying())
+                    jackEngine.endPlay();
+                cerr << "\nsave file: " << flush;
+                lastCmd = CMD_STORE;
+                mode = LINE_READ;
+            } else if (ch == 'l') {
+                if (jackEngine.isPlaying())
+                    jackEngine.endPlay();
+                cerr << "\nload file: " << flush;
+                lastCmd = CMD_LOAD;
+                mode = LINE_READ;
             }
-        } else if (ch == ' ') {
-            if (jackEngine.isPlaying())
-                jackEngine.endPlay();
-            else
-                jackEngine.startPlay();
-        } else if (ch == 'K') {
-            jackEngine.clear();
-            cerr << "\033[31;43mDeleted\033[0m\r" << endl;
-        } else if (ch == 'q') {
-            throw Quit();
+        } else {
+            // backspace.
+            if (ch == 7 || ch == 127)
+                lineBuf = lineBuf.substr(0, lineBuf.size() - 1);
+            else if (ch == '\r') {
+                switch (lastCmd) {
+                    // Processs whatever command we have waiting.
+                    case CMD_LOAD: {
+                        ifstream src(lineBuf);
+                        jackEngine.load(src);
+                        cerr << "loaded file " << lineBuf << "\r" << endl;
+                        lineBuf = "";
+                        break;
+                    }
+                    case CMD_STORE: {
+                        ofstream dst(lineBuf);
+                        jackEngine.store(dst);
+                        cerr << "saved file " << lineBuf << "\r" << endl;
+                        lineBuf = "";
+                        break;
+                    }
+                    default:
+                        cerr << "Internal error: Unkwnown command.\r" << endl;
+                }
+                mode = KEY_CMD;
+            } else {
+                lineBuf = lineBuf + ch;
+                cerr << ch << flush;
+            }
         }
+
     }
 }
 

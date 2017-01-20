@@ -1,6 +1,8 @@
 #ifndef awb_jackengine_h_
 #define awb_jackengine_h_
 
+#include <iostream>
+
 namespace awb {
 
 class JackEngine {
@@ -42,6 +44,9 @@ class JackEngine {
 
         // Clear all buffers, restore the engine to a pristine state.
         void clear();
+
+        void store(std::ostream &out);
+        void load(std::istream &in);
 };
 
 } // namespace awb
