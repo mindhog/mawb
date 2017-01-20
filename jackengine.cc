@@ -8,11 +8,14 @@
 
 #include <atomic>
 #include <iostream>
+#include <sstream>
 #include <vector>
 
+#include "mawb.pb.h"
 #include "wavetree.h"
 
 using namespace awb;
+using namespace mawb;
 using namespace std;
 
 static int jack_callback(jack_nframes_t nframes, void *arg) {
@@ -102,6 +105,53 @@ struct Channel {
     }
 
     Channel(const Channel &other) = delete;
+
+    void storeIn(Wave &wave) const {
+        wave.set_enabled(enabled);
+        wave.set_end(end);
+        wave.set_looppos(loopPos);
+        wave.set_offset(offset);
+
+        // Store the wave data.
+        int bufSize = WaveTree::getBufferSize() / 2;
+        ostringstream temp;
+        for (int i = offset; i < end + offset; i += bufSize) {
+            WaveBuf *buf = data->get(i * 2);
+            if (buf) {
+                for (int j = 0; j < bufSize * 2; ++j) {
+                    int val = buf->buffer[j] * 32768;
+                    temp << static_cast<char>(val >> 8);
+                    temp << static_cast<char>(val & 0xFF);
+                }
+            } else {
+                for (int j = 0; j < bufSize * 2; ++j) {
+                    temp << "\0\0";
+                }
+            }
+        }
+        wave.set_data(temp.str());
+    }
+
+    void loadFrom(const Wave &wave) {
+        enabled = wave.enabled();
+        end = wave.has_end() ? wave.end() : 0;
+        loopPos = wave.has_looppos() ? wave.looppos() : 0;
+        offset = wave.has_offset() ? wave.offset() : 0;
+
+        // Retrieve wave data.
+        const string &temp = wave.data();
+        int bufSize = WaveTree::getBufferSize() / 2;
+        for (int i = offset; i < end + offset; i += bufSize) {
+            WaveBuf *buf = data->get(i * 2, true);
+            for (int j = 0; j < bufSize * 2; ++j) {
+                buf->buffer[j] = static_cast<float>(
+                    ((temp[(i - offset) * 4 + j * 2] << 8) |
+                     (temp[(i - offset) * 4 + j * 2 + 1] & 0xFF)) /
+                    32768.0
+                );
+            }
+        }
+    }
 };
 
 enum Command {
@@ -182,6 +232,37 @@ class JackEngineImpl : public JackEngine {
                                       4096
                                       );
             jack_activate(client);
+        }
+
+        void store(ostream &out) const {
+            ProjectFile pf;
+            Section *section = pf.add_section();
+            section->set_end(end);
+
+            for (auto &channel : channels) {
+                cerr << "\033[36msaving channel\r" << endl;
+                Wave *wave = section->add_waves();
+                channel.storeIn(*wave);
+            }
+
+            pf.SerializeToOstream(&out);
+            cerr << "\033[32mWrote to outfile.\r" << endl;
+        }
+
+        void load(istream &in) {
+            channels.clear();
+            ProjectFile pf;
+            pf.ParseFromIstream(&in);
+
+            if (pf.section_size() >= 1) {
+                const Section &section = pf.section(0);
+                end = section.end();
+                for (const auto &wave : section.waves()) {
+                    channels.push_back(Channel());
+                    auto &channel = channels.back();
+                    channel.loadFrom(wave);
+                }
+            }
         }
 };
 
@@ -329,18 +410,44 @@ void JackEngine::process(unsigned int nframes) {
                 }
             } else if (impl->recordMode == JackEngineImpl::spanRelative && end) {
 
-                // If the new span exceeds the old span, adjust the ending to
-                // be at the beginning of the last frame.  Otherwise, this is
-                // just like wrap mode.
-                if (pos - channel.startPos > end +
-                     framesPerSecond / impl->errorMargin
-                    ) {
-                    // Quantize around the size of the span.
-                    end = ((pos - channel.startPos) / end + 1) * end;
-                    channel.loopPos = channel.startPos;
-                } else {
-                    channel.loopPos = 0;
+                cerr << "\r\nend is " << end << ", ";
+
+                // Get the position relative to the start position and trim
+                // anything that looks like human error.
+                int relPos = pos - channel.startPos;
+                if (relPos % end < framesPerSecond / impl->errorMargin) {
+                    relPos = (relPos / end) * end;
+
+                    // Deal with the pathological case where the entire riff
+                    // is less than the margin for error.
+                    if (!relPos) {
+                        cerr << "expanding really short riff!\r\n" << endl;
+                        relPos = end;
+                    }
                 }
+
+                // If the new span exceeds the old span, adjust the ending to
+                // be at the beginning of the last frame.
+                if (relPos > end) {
+                    // Quantize around the size of the span.
+                    end = (relPos / end + (relPos % end ? 1 : 0)) * end;
+                    channel.loopPos = channel.startPos;
+                    cerr << "expanding. ";
+                } else if (channel.startPos < end && pos < end) {
+                    // The new recording is entirely within the current span,
+                    // so this is just like wrap mode.
+                    channel.loopPos = 0;
+                    cerr << "wrapping. ";
+                } else {
+                    // The new recording must overlap the end.  Make the loop
+                    // pos the start pos.
+                    channel.loopPos = channel.startPos;
+                    cerr << "offset loop. ";
+                }
+
+                cerr << "loop pos = " << channel.loopPos << " new end = " <<
+                    end << " recording size = " << relPos <<
+                    "\r\n" << flush;
             }
 
             // if we finished recording the first channel, store the end.
@@ -378,7 +485,7 @@ void JackEngine::process(unsigned int nframes) {
         cerr << "\r" << flush;
     }
 
-    if (end) {
+    if (end && playing) {
         // Draw the meter.
 
         // Quantize the position to multiples of the end.
@@ -444,4 +551,24 @@ bool JackEngine::isPlaying() const {
 void JackEngine::clear() {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
     impl->command.store(clearCmd, memory_order_relaxed);
+}
+
+void JackEngine::store(ostream &out) {
+    const JackEngineImpl *impl = static_cast<const JackEngineImpl *>(this);
+    if (isPlaying() || impl->recordChannel.load(memory_order_relaxed) != -1) {
+        cerr << "\033[31mCan't save/load while playing or recording (hit "
+                "pause)\r" << endl;
+        return;
+    }
+    impl->store(out);
+}
+
+void JackEngine::load(istream &in) {
+    JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
+    if (isPlaying() || impl->recordChannel.load(memory_order_relaxed) != -1) {
+        cerr << "\033[31mCan't save/load while playing or recording (hit "
+                "pause)\r" << endl;
+        return;
+    }
+    impl->load(in);
 }

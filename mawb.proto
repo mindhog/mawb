@@ -46,6 +46,13 @@ message Project {
 message Section {
     optional string name = 1;
     repeated PBTrack track = 2;
+
+    // The end position of the section in frames.  This should generally be
+    // the end position of the longest frame.
+    optional int32 end = 3;
+
+    // The set of waves associated with the section.
+    repeated Wave waves = 4;
 }
 
 message PBTrack {
@@ -86,6 +93,31 @@ message SetInputParams {
 
     // The channel to convert all events to.
     optional int32 output_channel = 1;
+}
+
+// A "wave" is a reference to a wave-file and some meta-data to indicate how
+// the audio in that file is to be played back.
+message Wave {
+
+    // True if the wave is enabled.
+    optional bool enabled = 1 [default = true];
+
+    // The end position of the buffer in frames.
+    optional int32 end = 2;
+
+    // The loop position.  See "Channel" in jackengine.cc.
+    optional int32 loopPos = 3 [default = 0];
+
+    // The start offset of the track.
+    optional int32 offset = 4 [default = 0];
+
+    // The buffer data, stored as interlaced 16-bit signed big-endian values.
+    optional bytes data = 5;
+}
+
+// A stored project file.
+message ProjectFile {
+    repeated Section section = 1;
 }
 
 message RPC {
