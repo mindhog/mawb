@@ -118,6 +118,9 @@ message Wave {
 // A stored project file.
 message ProjectFile {
     repeated Section section = 1;
+
+    // Index of the current section.
+    optional int32 sectionIndex = 2 [default = 0];
 }
 
 message RPC {
