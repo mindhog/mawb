@@ -11,11 +11,15 @@
 #include <sstream>
 #include <vector>
 
+#include <spug/RCBase.h>
+#include <spug/RCPtr.h>
+
 #include "mawb.pb.h"
 #include "wavetree.h"
 
 using namespace awb;
 using namespace mawb;
+using namespace spug;
 using namespace std;
 
 static int jack_callback(jack_nframes_t nframes, void *arg) {
@@ -25,7 +29,9 @@ static int jack_callback(jack_nframes_t nframes, void *arg) {
 
 namespace {
 
-struct Channel {
+SPUG_RCPTR(Channel);
+
+struct Channel : public RCBase {
     WaveTree *data;
 
     // "enabled" means that a channel is playing audio.
@@ -55,7 +61,6 @@ struct Channel {
     Channel() :
         data(new WaveTree()),
         enabled(true),
-        end(0),
         loopPos(0),
         startPos(0),
         offset(0) {
@@ -154,6 +159,18 @@ struct Channel {
     }
 };
 
+SPUG_RCPTR(SectionObj);
+
+class SectionObj : public RCBase {
+    public:
+        vector<ChannelPtr> channels;
+
+        // End of the section span.
+        int end;
+
+        SectionObj() : end(0) {}
+};
+
 enum Command {
     // clear all channels, reset to a pristine state.
     clearCmd,
@@ -167,19 +184,20 @@ class JackEngineImpl : public JackEngine {
 
         jack_client_t *client;
         jack_port_t *in1, *in2, *out1, *out2;
-        size_t arenaSize;
-        vector<Channel> channels;
+        SectionObjPtr section;
         atomic_int recordChannel, playing;
         atomic_int pos;
+
+        // The list of sections and an ordinal indicating which section is
+        // current.
+        vector<SectionObjPtr> sections;
+        int sectionIndex;
 
         // Commands sent from other threads.
         atomic<Command> command;
 
         // The record mode.
         atomic<RecordMode> recordMode;
-
-        // The end sample position.  At this point, we start looping.
-        int end;
 
         // Set to true when we process a buffer while recording.  This lets us
         // keep track of the state changes as we go from recording to not.
@@ -198,15 +216,19 @@ class JackEngineImpl : public JackEngine {
 
         JackEngineImpl(const char *name) :
                 client(0),
+                section(new SectionObj()),
                 recordChannel(-1),
                 playing(0),
                 pos(0),
+                sectionIndex(0),
                 command(noopCmd),
-                end(0),
                 recordMode(spanRelative),
                 recording(false),
                 lastRecordChannel(-1),
                 initialized(false) {
+            sections.push_back(section);
+            sectionIndex = 0;
+
             jack_status_t status;
             client = jack_client_open(name, static_cast<jack_options_t>(0),
                                       &status);
@@ -236,13 +258,16 @@ class JackEngineImpl : public JackEngine {
 
         void store(ostream &out) const {
             ProjectFile pf;
-            Section *section = pf.add_section();
-            section->set_end(end);
+            pf.set_sectionindex(sectionIndex);
 
-            for (auto &channel : channels) {
-                cerr << "\033[36msaving channel\r" << endl;
-                Wave *wave = section->add_waves();
-                channel.storeIn(*wave);
+            for (const auto sec : sections) {
+                Section *secData = pf.add_section();
+                secData->set_end(sec->end);
+                for (const auto channel : section->channels) {
+                    cerr << "\033[36msaving channel\r" << endl;
+                    Wave *wave = secData->add_waves();
+                    channel->storeIn(*wave);
+                }
             }
 
             pf.SerializeToOstream(&out);
@@ -250,17 +275,21 @@ class JackEngineImpl : public JackEngine {
         }
 
         void load(istream &in) {
-            channels.clear();
+            sections.clear();
             ProjectFile pf;
             pf.ParseFromIstream(&in);
+            sectionIndex = pf.sectionindex();
 
-            if (pf.section_size() >= 1) {
-                const Section &section = pf.section(0);
-                end = section.end();
-                for (const auto &wave : section.waves()) {
-                    channels.push_back(Channel());
-                    auto &channel = channels.back();
-                    channel.loadFrom(wave);
+            for (int i = 0; i < pf.section_size(); ++i) {
+                const Section &sec = pf.section(0);
+                section = new SectionObj();
+                section->end = sec.end();
+                sections.push_back(section);
+
+                for (const auto &wave : sec.waves()) {
+                    ChannelPtr channel = new Channel();
+                    section->channels.push_back(channel);
+                    channel->loadFrom(wave);
                 }
             }
         }
@@ -277,7 +306,7 @@ JackEngine *JackEngine::create(const char *name) {
 
 void JackEngine::process(unsigned int nframes) {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
-    int &end = impl->end;
+    int &end = impl->section->end;
 
     // Initialize if necessary.
     if (!impl->initialized) {
@@ -291,9 +320,8 @@ void JackEngine::process(unsigned int nframes) {
     Command command = impl->command.load(memory_order_relaxed);
     switch (command) {
         case clearCmd:
-            impl->channels.clear();
+            impl->section = new SectionObj();
             impl->command.store(noopCmd, memory_order_relaxed);
-            impl->end = 0;
             impl->playing.store(true, memory_order_relaxed);
             break;
         case noopCmd:
@@ -316,12 +344,14 @@ void JackEngine::process(unsigned int nframes) {
 
     // Process input.
     int recordChannel = impl->recordChannel.load(memory_order_relaxed);
+    SectionObjPtr section = impl->section;
     if (recordChannel != -1) {
+        // Recording.
         // If we weren't previously recording, reset the record position to
         // zero.
         bool startedRecording = false;
         if (!impl->recording) {
-            if (impl->channels.empty())
+            if (section->channels.empty())
                 pos = 0;
             impl->recording = true;
             impl->lastRecordChannel = recordChannel;
@@ -329,17 +359,16 @@ void JackEngine::process(unsigned int nframes) {
         }
 
         // Allocate a new channel if necessary.
-        Channel *channel;
-        if (recordChannel >= impl->channels.size()) {
-            impl->channels.push_back(Channel());
-            channel = &impl->channels.back();
-            if (recordChannel != impl->channels.size() - 1) {
-                recordChannel = impl->channels.size() - 1;
+        ChannelPtr channel;
+        if (recordChannel >= section->channels.size()) {
+            section->channels.push_back(channel = new Channel());
+            if (recordChannel != section->channels.size() - 1) {
+                recordChannel = section->channels.size() - 1;
                 impl->recordChannel.store(recordChannel, memory_order_relaxed);
                 impl->lastRecordChannel = recordChannel;
             }
         } else {
-            channel = &impl->channels[recordChannel];
+            channel = section->channels[recordChannel];
         }
 
         // If we just started recording, store the start pos.
@@ -365,7 +394,7 @@ void JackEngine::process(unsigned int nframes) {
         if (impl->recording) {
             impl->recording = false;
 
-            Channel &channel = impl->channels[impl->lastRecordChannel];
+            ChannelPtr channel = section->channels[impl->lastRecordChannel];
 
             // Store the end of the record channel.
             if (impl->recordMode == JackEngineImpl::expand && end) {
@@ -374,23 +403,23 @@ void JackEngine::process(unsigned int nframes) {
                 // span, we assume that we want to line up with the start of
                 // the span so set the offset accordingly.
                 cerr << "frame begins at " <<
-                    ((end - channel.startPos) * 100 / end) <<
+                    ((end - channel->startPos) * 100 / end) <<
                     " percent (" <<
-                    (float(end - channel.startPos) / framesPerSecond) <<
+                    (float(end - channel->startPos) / framesPerSecond) <<
                     "/" << (float(end) / framesPerSecond) <<
                     " seconds) before end of span\r" << endl;
-                if (end - channel.startPos < framesPerSecond / 10)
-                    channel.offset = end;
+                if (end - channel->startPos < framesPerSecond / 10)
+                    channel->offset = end;
                 else
-                    channel.offset = 0;
+                    channel->offset = 0;
 
                 // If we exceeded the end by more than a tenth of a second
                 // (human error) in expand mode, we want to adjust the end to
                 // be the first multiple of end that is greater than the
                 // current pos.
-                if (pos - channel.offset > end +
+                if (pos - channel->offset > end +
                     framesPerSecond / impl->errorMargin) {
-                    int localPos = pos - channel.offset;
+                    int localPos = pos - channel->offset;
                     int multiple = localPos / end;
 
                     // We normally want to increment the multiple because,
@@ -414,7 +443,7 @@ void JackEngine::process(unsigned int nframes) {
 
                 // Get the position relative to the start position and trim
                 // anything that looks like human error.
-                int relPos = pos - channel.startPos;
+                int relPos = pos - channel->startPos;
                 if (relPos % end < framesPerSecond / impl->errorMargin) {
                     relPos = (relPos / end) * end;
 
@@ -431,21 +460,21 @@ void JackEngine::process(unsigned int nframes) {
                 if (relPos > end) {
                     // Quantize around the size of the span.
                     end = (relPos / end + (relPos % end ? 1 : 0)) * end;
-                    channel.loopPos = channel.startPos;
+                    channel->loopPos = channel->startPos;
                     cerr << "expanding. ";
-                } else if (channel.startPos < end && pos < end) {
+                } else if (channel->startPos < end && pos < end) {
                     // The new recording is entirely within the current span,
                     // so this is just like wrap mode.
-                    channel.loopPos = 0;
+                    channel->loopPos = 0;
                     cerr << "wrapping. ";
                 } else {
                     // The new recording must overlap the end.  Make the loop
                     // pos the start pos.
-                    channel.loopPos = channel.startPos;
+                    channel->loopPos = channel->startPos;
                     cerr << "offset loop. ";
                 }
 
-                cerr << "loop pos = " << channel.loopPos << " new end = " <<
+                cerr << "loop pos = " << channel->loopPos << " new end = " <<
                     end << " recording size = " << relPos <<
                     "\r\n" << flush;
             }
@@ -456,10 +485,10 @@ void JackEngine::process(unsigned int nframes) {
                 impl->pos.store(0, memory_order_relaxed);
             }
 
-            if (!channel.end)
-                channel.end = end;
-            cerr << "recorded channel {offset: " << channel.offset <<
-                ", end = " << channel.end << "} engine end = " << end <<
+            if (!channel->end)
+                channel->end = end;
+            cerr << "recorded channel {offset: " << channel->offset <<
+                ", end = " << channel->end << "} engine end = " << end <<
                 "\r" << endl;
         }
     }
@@ -468,12 +497,12 @@ void JackEngine::process(unsigned int nframes) {
     bool playing = impl->playing.load(memory_order_relaxed);
     if (playing) {
         int channelIndex = -1;
-        for (Channel &channel : impl->channels) {
+        for (auto channel : section->channels) {
             ++channelIndex;
-            if (channel.enabled && recordChannel != channelIndex) {
-                assert(channel.end);
+            if (channel->enabled && recordChannel != channelIndex) {
+                assert(channel->end);
                 cerr << channelIndex << ": ";
-                WaveBuf *buf = channel.getReadBuffer(pos);
+                WaveBuf *buf = channel->getReadBuffer(pos);
                 if (!buf) continue;
 
                 for (int i = 0; i < nframes; ++i) {
