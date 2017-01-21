@@ -53,10 +53,6 @@ struct Channel : public RCBase {
     // position when we look up buffers from audio data during replay.
     int offset;
 
-    Channel(Channel &&other) {
-        take(other);
-    }
-
     // Create a channel and allocate an initial buffer.
     Channel() :
         data(new WaveTree()),
@@ -70,22 +66,7 @@ struct Channel : public RCBase {
         delete data;
     }
 
-    Channel &operator =(Channel &&other) {
-        take(other);
-        return *this;
-    }
-
-    // Steal the contents of 'other'.  This is the implementation of move
-    // construction and assignment.
-    void take(Channel &other) {
-        data = other.data;
-        enabled = other.enabled;
-        end = other.end;
-        loopPos = other.loopPos;
-        startPos = other.startPos;
-        offset = other.offset;
-        other.data = 0;
-    }
+    Channel(const Channel &other) = delete;
 
     // Returns a buffer for writing at the given position, creating it if
     // necessary.
@@ -108,8 +89,6 @@ struct Channel : public RCBase {
 
         return data->get(pos * 2, false);
     }
-
-    Channel(const Channel &other) = delete;
 
     void storeIn(Wave &wave) const {
         wave.set_enabled(enabled);
