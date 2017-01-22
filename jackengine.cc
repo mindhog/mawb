@@ -151,11 +151,20 @@ class SectionObj : public RCBase {
 };
 
 enum Command {
+    // Don't do anything.  We start with this and reserve the zero value so
+    // that we also use the command enum as a boolean.
+    noopCmd = 0,
+
     // clear all channels, reset to a pristine state.
     clearCmd,
 
-    // Don't do anything.
-    noopCmd,
+    // Begin a new section as soon as we end the current section or begin
+    // recording.
+    newSectionCmd,
+
+    // Begin the next or previous section (same cases as newSectionCmd).
+    nextSectionCmd,
+    prevSectionCmd,
 };
 
 class JackEngineImpl : public JackEngine {
@@ -185,6 +194,12 @@ class JackEngineImpl : public JackEngine {
         // The last channel we were recording on.
         int lastRecordChannel;
 
+        // When one of the section change commands has been sent, this is set
+        // to that command.  It causes the engine to continue playing the
+        // current section until either we reach the end of it or recording
+        // has been initiated for one of the channels.
+        Command newSectionLatched;
+
         // True if the engine has been initialized.
         bool initialized;
 
@@ -204,6 +219,7 @@ class JackEngineImpl : public JackEngine {
                 recordMode(spanRelative),
                 recording(false),
                 lastRecordChannel(-1),
+                newSectionLatched(noopCmd),
                 initialized(false) {
             sections.push_back(section);
             sectionIndex = 0;
@@ -272,6 +288,36 @@ class JackEngineImpl : public JackEngine {
                 }
             }
         }
+
+        SectionObjPtr changeSections() {
+            cerr << "\r\n\033[33mChanging to ";
+            switch (newSectionLatched) {
+                case newSectionCmd:
+                    cerr << "new section\r" << endl;
+                    section = new SectionObj();
+                    sections.push_back(section);
+                    sectionIndex = sections.size() - 1;
+                    break;
+
+                case nextSectionCmd:
+                    cerr << "next section\r" << endl;
+                    sectionIndex = (sectionIndex + 1) % sections.size();
+                    section = sections[sectionIndex];
+                    break;
+
+                case prevSectionCmd:
+                    cerr << "prev section\r" << endl;
+                    sectionIndex = (sectionIndex - 1) % sections.size();
+                    section = sections[sectionIndex];
+                    break;
+
+                default:
+                    assert(false && "Invalid section type");
+            }
+
+            newSectionLatched = noopCmd;
+            return section;
+        }
 };
 
 // Audio sample rate.
@@ -305,6 +351,21 @@ void JackEngine::process(unsigned int nframes) {
             break;
         case noopCmd:
             break;
+        case newSectionCmd:
+            cerr << "\r\nlatched for new section\r" << endl;
+            impl->newSectionLatched = newSectionCmd;
+            impl->command.store(noopCmd, memory_order_relaxed);
+            break;
+        case nextSectionCmd:
+            cerr << "\r\nlatched for next section\r" << endl;
+            impl->newSectionLatched = nextSectionCmd;
+            impl->command.store(noopCmd, memory_order_relaxed);
+            break;
+        case prevSectionCmd:
+            cerr << "\r\nlatched for prev section\r" << endl;
+            impl->newSectionLatched = prevSectionCmd;
+            impl->command.store(noopCmd, memory_order_relaxed);
+            break;
         default:
             assert(false && "Unknown command received.");
     }
@@ -326,11 +387,14 @@ void JackEngine::process(unsigned int nframes) {
     SectionObjPtr section = impl->section;
     if (recordChannel != -1) {
         // Recording.
-        // If we weren't previously recording, reset the record position to
-        // zero.
+        // If we weren't previously recording, initiate recording state.
         bool startedRecording = false;
         if (!impl->recording) {
-            if (section->channels.empty())
+            // Start a new section if we're latched.
+            if (impl->newSectionLatched)
+                section = impl->changeSections();
+
+            if (impl->section->channels.empty())
                 pos = 0;
             impl->recording = true;
             impl->lastRecordChannel = recordChannel;
@@ -509,20 +573,30 @@ void JackEngine::process(unsigned int nframes) {
         cerr << "\033[0m";
         for (int i = 0; i < 40 - width; ++i)
             cerr << ' ';
-        cerr << "]\033[K\r\033[1A" << flush;
+        cerr << "]\033[K";
+
+        cerr << " " << pos << "/" << end;
+
+        cerr << "\r\033[1A" << flush; // BOL and hide the cursor.
     }
 
     if (playing || recordChannel != -1) {
-        if (recordChannel == -1 || impl->recordMode == JackEngineImpl::wrap)
+        if (recordChannel == -1 || impl->recordMode == JackEngineImpl::wrap) {
             // Wrap on the end if we're either not recording or we're
             // recording in wrap mode.
             impl->pos.store(end ? (pos + nframes) % end :
                                   (pos + nframes),
                             memory_order_relaxed
                             );
-        else
-            // Recording in expand mode, just keep growing.
+
+            // If we're latched to begin a new section and we're at the end
+            // of the current section, do the section switch now.
+            if (impl->newSectionLatched && pos + nframes >= end)
+                impl->changeSections();
+        } else {
+            // Recording in one of the expand modes, just keep growing.
             impl->pos.store(pos + nframes, memory_order_relaxed);
+        }
     }
 }
 
@@ -559,6 +633,21 @@ bool JackEngine::isPlaying() const {
 void JackEngine::clear() {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
     impl->command.store(clearCmd, memory_order_relaxed);
+}
+
+void JackEngine::startNewSection() {
+    JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
+    impl->command.store(newSectionCmd, memory_order_relaxed);
+}
+
+void JackEngine::startNextSection() {
+    JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
+    impl->command.store(nextSectionCmd, memory_order_relaxed);
+}
+
+void JackEngine::startPrevSection() {
+    JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
+    impl->command.store(prevSectionCmd, memory_order_relaxed);
 }
 
 void JackEngine::store(ostream &out) {

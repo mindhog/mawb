@@ -155,3 +155,12 @@ message RPC {
 
     optional SetInputParams set_input_params = 9;
 }
+
+// An AST node for the macro language.
+// This is inspired by thoughts on crack 2.0.
+message ASTNode {
+    // The node definition.
+    optional int32 def = 1;
+
+    repeated ASTNode child = 2;
+}

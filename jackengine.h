@@ -45,6 +45,18 @@ class JackEngine {
         // Clear all buffers, restore the engine to a pristine state.
         void clear();
 
+        // Start a new section as soon as the old section ends or when record
+        // is initiated.
+        void startNewSection();
+
+        // Start the previous section as soon as the old section ends or when
+        // record is initiated.
+        void startPrevSection();
+
+        // Start the next section as soon as the old section ends or when
+        // record is initiated.
+        void startNextSection();
+
         void store(std::ostream &out);
         void load(std::istream &in);
 };
