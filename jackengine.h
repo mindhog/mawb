@@ -24,6 +24,7 @@ class JackEngine {
             spanRelative,
         };
 
+        ~JackEngine();
 
         static JackEngine *create(const char *name);
 
