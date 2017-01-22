@@ -328,6 +328,11 @@ int framesPerSecond = 44100;
 
 } // anon namespace
 
+JackEngine::~JackEngine() {
+    JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
+    jack_deactivate(impl->client);
+}
+
 JackEngine *JackEngine::create(const char *name) {
     return new JackEngineImpl(name);
 }
