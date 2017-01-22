@@ -80,22 +80,25 @@ void Term::handleRead(spug::Reactor &reactor) {
             }
         } else {
             // backspace.
-            if (ch == 7 || ch == 127)
-                lineBuf = lineBuf.substr(0, lineBuf.size() - 1);
-            else if (ch == '\r') {
+            if (ch == 7 || ch == 127) {
+                if (lineBuf.size()) {
+                    cerr << "\b \b" << flush;
+                    lineBuf = lineBuf.substr(0, lineBuf.size() - 1);
+                }
+            } else if (ch == '\r') {
                 switch (lastCmd) {
                     // Processs whatever command we have waiting.
                     case CMD_LOAD: {
                         ifstream src(lineBuf);
                         jackEngine.load(src);
-                        cerr << "loaded file " << lineBuf << "\r" << endl;
+                        cerr << "\r\nloaded file " << lineBuf << "\r" << endl;
                         lineBuf = "";
                         break;
                     }
                     case CMD_STORE: {
                         ofstream dst(lineBuf);
                         jackEngine.store(dst);
-                        cerr << "saved file " << lineBuf << "\r" << endl;
+                        cerr << "\r\nsaved file " << lineBuf << "\r" << endl;
                         lineBuf = "";
                         break;
                     }
