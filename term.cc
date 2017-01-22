@@ -71,6 +71,12 @@ void Term::handleRead(spug::Reactor &reactor) {
                 cerr << "\nload file: " << flush;
                 lastCmd = CMD_LOAD;
                 mode = LINE_READ;
+            } else if (ch == ',') {
+                jackEngine.startPrevSection();
+            } else if (ch == '.') {
+                jackEngine.startNextSection();
+            } else if (ch == 'n') {
+                jackEngine.startNewSection();
             }
         } else {
             // backspace.
