@@ -128,11 +128,14 @@ struct Channel : public RCBase {
         for (int i = offset; i < end + offset; i += bufSize) {
             WaveBuf *buf = data->get(i * 2, true);
             for (int j = 0; j < bufSize * 2; ++j) {
-                buf->buffer[j] = static_cast<float>(
-                    ((temp[(i - offset) * 4 + j * 2] << 8) |
-                     (temp[(i - offset) * 4 + j * 2 + 1] & 0xFF)) /
-                    32768.0
-                );
+                int index = (i - offset) * 4 + j * 2;
+                if (index < temp.size()) {
+                    buf->buffer[j] = static_cast<float>(
+                        ((temp[index] << 8) |
+                        (temp[index + 1] & 0xFF)) /
+                        32768.0
+                    );
+                }
             }
         }
     }
