@@ -37,7 +37,9 @@ struct Channel : public RCBase {
     // "enabled" means that a channel is playing audio.
     bool enabled;
 
-    // The end position of the loop stored in the channel.
+    // The end position of the loop stored in the channel.  This is relative
+    // to the offset, so the absolute position of the end of the channel wave
+    // is offset + end.  The channel wave loops from offset to offset + end.
     int end;
 
     // If non-zero, this is the "loop position" in span relative mode.  During
@@ -266,10 +268,17 @@ class JackEngineImpl : public JackEngine {
             for (const auto sec : sections) {
                 Section *secData = pf.add_section();
                 secData->set_end(sec->end);
+                cerr << "\033[3gmsaving section. end = " <<
+                    secData->end() << "\r\n" << flush;
                 for (const auto channel : section->channels) {
-                    cerr << "\033[36msaving channel\r" << endl;
                     Wave *wave = secData->add_waves();
                     channel->storeIn(*wave);
+                    cerr << "\033[36m   saving channel, enabled =  " <<
+                        wave->enabled() << ", end = " << wave->end() <<
+                        ", loop pos = " << wave->looppos() <<
+                        ", offset = " << wave->offset() <<
+                        ", data size = " << wave->data().size() <<
+                        "\r\n" << flush;
                 }
             }
 
@@ -295,6 +304,8 @@ class JackEngineImpl : public JackEngine {
                     ChannelPtr channel = new Channel();
                     section->channels.push_back(channel);
                     channel->loadFrom(wave);
+                    if (channel->end - channel->offset > section->end)
+                        section->end = channel->end - channel->offset;
                 }
             }
         }
