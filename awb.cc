@@ -1,3 +1,4 @@
+#include <fstream>
 #include <iostream>
 
 #include <google/protobuf/io/coded_stream.h>
@@ -33,12 +34,16 @@ class ConnectionHandler : public Reactable {
         string outData, inData;
         char buffer[4096];
         Controller &controller;
+        JackEngine &jackEngine;
 
     public:
 
-        ConnectionHandler(Socket *socket, Controller &controller) :
+        ConnectionHandler(Socket *socket, Controller &controller,
+                          JackEngine &jackEngine
+                          ) :
             socket(socket),
-            controller(controller) {
+            controller(controller),
+            jackEngine(jackEngine) {
         }
 
         ~ConnectionHandler() {
@@ -78,8 +83,50 @@ class ConnectionHandler : public Reactable {
             controller.setState(newState);
         }
 
+        void processChangeJackState(const ChangeJackStateRequest &newState) {
+            switch (newState.state()) {
+                case IDLE:
+                    jackEngine.endRecord();
+                    jackEngine.endPlay();
+                    break;
+                case RECORD:
+                    newState.channel() << "..." << flush;
+                    jackEngine.startRecord(newState.channel());
+                    break;
+                case PLAY:
+                    jackEngine.endRecord();
+                    jackEngine.startPlay();
+                    break;
+                case LATCHED_RECORD:
+                    // Not sure what to do about this one.
+                default:
+                    cerr << "Unrecognized state " << newState.state() << endl;
+                    break;
+            }
+        }
+
+        void processClearState(const ClearStateRequest &clearState) {
+            jackEngine.clear();
+        }
+
+        void processShutdown(const ShutdownRequest &shutdown) {
+            throw Term::Quit();
+        }
+
         void processSaveState(const string &filename) {
-            controller.saveState(filename);
+//            controller.saveState(filename);
+            ofstream dst(filename);
+            jackEngine.store(dst);
+            cerr << "\r\nsaved file " << filename << "\r" << endl;
+        }
+
+        void processChangeSection(const ChangeSectionRequest &changeSection) {
+            // TODO: deal with section indexes.
+            jackEngine.startNextSection();
+        }
+
+        void processNewSection(const NewSectionRequest &newSection) {
+            jackEngine.startNewSection();
         }
 
         // Serialize the message to the output buffer to be sent as soon as
@@ -106,10 +153,13 @@ class ConnectionHandler : public Reactable {
         }
 
         void processLoadState(const LoadState &message, Response *resp) {
-            Project project = controller.loadState(message.filename());
-
-            if (resp)
-                resp->mutable_project()->CopyFrom(project);
+//            Project project = controller.loadState(message.filename());
+//
+//            if (resp)
+//                resp->mutable_project()->CopyFrom(project);
+            ifstream src(message.filename());
+            jackEngine.load(src);
+            cerr << "\r\nloaded file " << message.filename() << "\r" << endl;
         }
 
         // Processes the message, returns 'true' if the message is so far
@@ -129,8 +179,11 @@ class ConnectionHandler : public Reactable {
                     return false;
 
                 // Make sure we have enough data.
-                if (inData.size() < size + 4)
+                if (inData.size() < size + 4) {
+                    cerr << "Incomplete message, waiting for " << size <<
+                        ".\r" << endl;
                     return true;
+                }
 
                 // Process all of the requests in the RPC message.
                 mawb::RPC rpc;
@@ -180,6 +233,21 @@ class ConnectionHandler : public Reactable {
                 // add a "play" to setup.
                 if (rpc.has_change_sequencer_state())
                     processSetState(rpc.change_sequencer_state());
+
+                if (rpc.has_change_jack_state())
+                    processChangeJackState(rpc.change_jack_state());
+
+                if (rpc.has_clear_state())
+                    processClearState(rpc.clear_state());
+
+                if (rpc.has_shutdown())
+                    processShutdown(rpc.shutdown());
+
+                if (rpc.has_change_section())
+                    processChangeSection(rpc.change_section());
+
+                if (rpc.has_new_section())
+                    processNewSection(rpc.new_section());
 
                 // Truncate the used portion of the buffer.
                 inData = inData.substr(size + 4);
@@ -236,11 +304,13 @@ class Listener : public Reactable {
     private:
         Socket socket;
         Controller &controller;
+        JackEngine &jackEngine;
 
     public:
-        Listener(int port, Controller &controller) :
+        Listener(int port, Controller &controller, JackEngine &jackEngine) :
             socket(port),
-            controller(controller) {
+            controller(controller),
+            jackEngine(jackEngine) {
 
             socket.listen(5);
             socket.setReusable(true);
@@ -257,7 +327,9 @@ class Listener : public Reactable {
          */
         virtual void handleRead(Reactor &reactor) {
             reactor.addReactable(
-                new ConnectionHandler(socket.acceptAlloc(), controller)
+                new ConnectionHandler(socket.acceptAlloc(), controller,
+                                      jackEngine
+                                      )
             );
         }
 
@@ -331,7 +403,7 @@ int main(int argc, const char **argv) {
         controller.setDispatcher("fluid", fs.get());
 
         // Create the RPC listener.
-        reactor->addReactable(new Listener(8193, controller));
+        reactor->addReactable(new Listener(8193, controller, *jackEng));
 
         // If we're on a TTY, start the terminal interface.
         if (Term::isTTY()) {

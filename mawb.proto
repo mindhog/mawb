@@ -16,6 +16,8 @@ message Config {
     repeated FluidSynthDisp fluid_disp = 2;
 }
 
+// XXX Should probably just be EngineState at this point, since we're reusing
+// it for jack.
 enum SequencerState {
     // No tracks are being played.
     IDLE = 0;
@@ -60,13 +62,16 @@ message PBTrack {
     optional bytes events = 2;
 }
 
-// This is the all-purpose response message for all of the
+// This is the all-purpose response message for all requests.
 message Response {
     // The original message id that this is a response to.
     optional int32 msg_id = 1;
 
     // The complete project object.
     optional Project project = 2;
+
+    // If specified, this is an error message to be returned.
+    optional string error = 3;
 }
 
 // Load a complete project state from a file into the daemon.
@@ -93,6 +98,46 @@ message SetInputParams {
 
     // The channel to convert all events to.
     optional int32 output_channel = 1;
+}
+
+// Change jack engine state.
+message ChangeJackStateRequest {
+    optional SequencerState state = 1;
+
+    // If specified, this is the record channel.
+    // XXX default is because we don't serialize the zero value from crack :-(
+    optional int32 channel = 2 [default = 0];
+}
+
+// Clear all state in the engine.  (Currently only the jack engine.
+message ClearStateRequest {
+}
+
+// Shut down the daemon.
+message ShutdownRequest {
+}
+
+// Save the entire engine state.
+message SaveStateRequest {
+    // Name of the file to save to.
+    optional string filename = 1;
+}
+
+// Load the entire engine state.
+message LoadStateRequest {
+    // Name of the file to load from.
+    optional string filename = 1;
+}
+
+
+// Change section.
+message ChangeSectionRequest {
+    // New section index.
+    optional int32 sectionIndex = 1;
+}
+
+// Create a new section.
+message NewSectionRequest {
 }
 
 // A "wave" is a reference to a wave-file and some meta-data to indicate how
@@ -154,6 +199,14 @@ message RPC {
     repeated SetInitialState set_initial_state = 8;
 
     optional SetInputParams set_input_params = 9;
+
+    optional ChangeJackStateRequest change_jack_state = 10;
+    optional ClearStateRequest clear_state = 11;
+    optional ShutdownRequest shutdown = 12;
+    optional SaveStateRequest jack_save_state = 13;
+    optional LoadStateRequest jack_load_state = 14;
+    optional ChangeSectionRequest change_section = 15;
+    optional NewSectionRequest new_section = 16;
 }
 
 // An AST node for the macro language.

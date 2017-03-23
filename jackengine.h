@@ -33,7 +33,6 @@ class JackEngine {
 
         void startRecord(int channel);
         void endRecord();
-        void setRecordMode(RecordMode mode);
 
         // Returns the channel that is currently being recorded, -1 if not
         // recording.
