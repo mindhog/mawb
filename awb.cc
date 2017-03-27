@@ -90,7 +90,6 @@ class ConnectionHandler : public Reactable {
                     jackEngine.endPlay();
                     break;
                 case RECORD:
-                    newState.channel() << "..." << flush;
                     jackEngine.startRecord(newState.channel());
                     break;
                 case PLAY:
