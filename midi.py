@@ -82,6 +82,19 @@ class Event:
       """
       raise NotImplementedError()
 
+   def __eq__(self, other):
+      if self is other:
+         return True
+
+      if self.__class__ is not other.__class__:
+         return False
+
+      for attr, val in self.__dict__.iteritems():
+         if getattr(other, attr, None) != val:
+            return False
+
+      return True
+
 class ChannelEvent(Event):
    
    """
@@ -131,6 +144,11 @@ class NoteOn(NoteEvent):
       return 'ch: %d, note %d on, velocity %d' % \
              (self.channel, self.note, self.velocity)
 
+   def __repr__(self):
+      return 'NoteOn(%s, %s, %s, %s)' % (self.time, self.channel, self.note,
+                                         self.velocity
+                                         )
+
 class NoteOff(NoteEvent):
    
    """
@@ -157,6 +175,11 @@ class NoteOff(NoteEvent):
       return 'ch: %d, note %d off, velocity %d' % \
              (self.channel, self.note, self.velocity)
 
+   def __repr__(self):
+      return 'NoteOff(%s, %s, %s, %s)' % (self.time, self.channel, self.note,
+                                         self.velocity
+                                         )
+
 class ProgramChange(ChannelEvent):
    
    """
@@ -180,6 +203,11 @@ class ProgramChange(ChannelEvent):
    def __str__(self):
       return 'ch: %d, change to program %d' % \
              (self.channel, self.program)   
+
+   def __repr__(self):
+      return 'ProgramChange(%s, %s, %s)' % (self.time, self.channel,
+                                            self.program
+                                            )
 
 class PitchWheel(ChannelEvent):
    
@@ -207,6 +235,9 @@ class PitchWheel(ChannelEvent):
    def __str__(self):
       return 'ch: %d, pitch wheel to %d' % \
              (self.channel, self.value)
+
+   def __repr__(self):
+      return 'PitchWheel(%s, %s, %s)' % (self.time, self.channel, self.value)
 
 class ControlChange(ChannelEvent):
    
@@ -236,6 +267,12 @@ class ControlChange(ChannelEvent):
       return 'ch: %d, control %d changed to %d' % \
              (self.channel, self.controller, self.value)
 
+   def __repr__(self):
+      return 'ControlChange(%s, %s, %s, %s)' % (self.time, self.channel,
+                                                self.controller,
+                                                self.value
+                                                )
+
 class SysEx(Event):
 
    """
@@ -264,6 +301,8 @@ class SysEx(Event):
          val = val + ' %0x' % ord(c)
       return 'SysEx: %s' % val
 
+   def __repr__(self):
+      return 'SysEx(%s, %r)' % (self.time, self.data)
 
 # XXX Still need the following classes:
 #     AfterTouch
