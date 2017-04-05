@@ -6,6 +6,9 @@
 namespace awb {
 
 class JackEngine {
+    private:
+        void closeRecordChannel(const int pos);
+
     public:
 
         enum RecordMode {
