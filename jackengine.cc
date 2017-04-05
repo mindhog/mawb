@@ -355,6 +355,119 @@ JackEngine *JackEngine::create(const char *name) {
     return new JackEngineImpl(name);
 }
 
+void JackEngine::closeRecordChannel(const int pos) {
+    JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
+    SectionObj * const section = impl->section.get();
+
+    ChannelPtr channel = section->channels[impl->lastRecordChannel];
+
+    // Store the end of the record channel.
+    if (impl->recordMode == JackEngineImpl::expand && section->end) {
+
+        // If we started recording very shortly before the end of the
+        // span, we assume that we want to line up with the start of
+        // the span so set the offset accordingly.
+        cerr << "frame begins at " <<
+            ((section->end - channel->startPos) * 100 / section->end) <<
+            " percent (" <<
+            (float(section->end - channel->startPos) / framesPerSecond)
+            << "/" << (float(section->end) / framesPerSecond) <<
+            " seconds) before end of span\r" << endl;
+        if (section->end - channel->startPos < framesPerSecond / 10)
+            channel->offset = section->end;
+        else
+            channel->offset = 0;
+
+        // If we exceeded the end by more than a tenth of a second
+        // (human error) in expand mode, we want to adjust the end to
+        // be the first multiple of end that is greater than the
+        // current pos.
+        if (pos - channel->offset > section->end +
+            framesPerSecond / impl->errorMargin) {
+            int localPos = pos - channel->offset;
+            int multiple = localPos / section->end;
+
+            // We normally want to increment the multiple because,
+            // for example, for a new span that is 1.5 times the
+            // length of the old span we'd get a multiple of 1 and
+            // we'd want a multiple of 2. But only do this if we
+            // exceeed the last boundary by the "jitter delay" (so,
+            // for example, 1.1 seconds would still count as just 1).
+            if (localPos - section->end * multiple >
+                 framesPerSecond / impl->errorMargin)
+                ++multiple;
+            localPos = section->end * multiple;
+
+            section->end = localPos;
+            cerr << "changed end to " << section->end <<
+                " (multiple of " << multiple << ")\r" << endl;
+        }
+    } else if (impl->recordMode == JackEngineImpl::spanRelative &&
+               section->end
+               ) {
+
+        cerr << "\r\nend is " << section->end << ", ";
+
+        // Get the position relative to the start position and trim
+        // anything that looks like human error.
+        int relPos = pos - channel->startPos;
+        if (relPos % section->end <
+            framesPerSecond / impl->errorMargin
+            ) {
+            relPos = (relPos / section->end) * section->end;
+
+            // Deal with the pathological case where the entire riff
+            // is less than the margin for error.
+            if (!relPos) {
+                cerr << "expanding really short riff!\r\n" << endl;
+                relPos = section->end;
+            }
+        }
+
+        // If the new span exceeds the old span, adjust the ending to
+        // be at the beginning of the last frame.
+        if (relPos > section->end) {
+            // Quantize around the size of the span.
+            section->end = (relPos / section->end +
+                             (relPos % section->end ? 1 : 0)
+                            ) * section->end;
+            channel->loopPos = channel->startPos;
+            cerr << "expanding. ";
+        } else if (channel->startPos < section->end &&
+                   pos < section->end
+                   ) {
+            // The new recording is entirely within the current span,
+            // so this is just like wrap mode.
+            channel->loopPos = 0;
+            cerr << "wrapping. ";
+        } else {
+            // The new recording must overlap the end.  Make the loop
+            // pos the start pos.
+            channel->loopPos = channel->startPos;
+            cerr << "offset loop. ";
+        }
+
+        cerr << "loop pos = " << channel->loopPos << " new end = " <<
+            section->end << " recording size = " << relPos <<
+            "\r\n" << flush;
+    }
+
+    // if we finished recording the first channel, store the end.
+    if (!section->end) {
+        section->end = pos;
+        impl->pos.store(0, memory_order_relaxed);
+    }
+
+    if (!channel->end)
+        channel->end = section->end;
+
+    impl->lastRecordChannel = -1;
+
+    cerr << "recorded channel {offset: " << channel->offset <<
+        ", end = " << channel->end << "} engine end = " <<
+        section->end << "\r" << endl;
+}
+
 void JackEngine::process(unsigned int nframes) {
     JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
 
@@ -371,6 +484,7 @@ void JackEngine::process(unsigned int nframes) {
     switch (command) {
         case clearCmd:
             impl->section = new SectionObj();
+            impl->sections.clear();
             impl->command.store(noopCmd, memory_order_relaxed);
             impl->playing.store(true, memory_order_relaxed);
             break;
@@ -412,6 +526,14 @@ void JackEngine::process(unsigned int nframes) {
     SectionObjPtr section = impl->section;
     if (recordChannel != -1) {
         // Recording.
+
+        // If we were already recording on a different channel, close out that
+        // channel.
+        if (impl->recording && recordChannel != impl->lastRecordChannel) {
+            closeRecordChannel(pos);
+            impl->recording = false;
+        }
+
         // If we weren't previously recording, initiate recording state.
         bool startedRecording = false;
         if (!impl->recording) {
@@ -461,112 +583,10 @@ void JackEngine::process(unsigned int nframes) {
         // whatever other finalization we need to.
         if (impl->recording) {
             impl->recording = false;
-
-            ChannelPtr channel = section->channels[impl->lastRecordChannel];
-
-            // Store the end of the record channel.
-            if (impl->recordMode == JackEngineImpl::expand && section->end) {
-
-                // If we started recording very shortly before the end of the
-                // span, we assume that we want to line up with the start of
-                // the span so set the offset accordingly.
-                cerr << "frame begins at " <<
-                    ((section->end - channel->startPos) * 100 / section->end) <<
-                    " percent (" <<
-                    (float(section->end - channel->startPos) / framesPerSecond)
-                    << "/" << (float(section->end) / framesPerSecond) <<
-                    " seconds) before end of span\r" << endl;
-                if (section->end - channel->startPos < framesPerSecond / 10)
-                    channel->offset = section->end;
-                else
-                    channel->offset = 0;
-
-                // If we exceeded the end by more than a tenth of a second
-                // (human error) in expand mode, we want to adjust the end to
-                // be the first multiple of end that is greater than the
-                // current pos.
-                if (pos - channel->offset > section->end +
-                    framesPerSecond / impl->errorMargin) {
-                    int localPos = pos - channel->offset;
-                    int multiple = localPos / section->end;
-
-                    // We normally want to increment the multiple because,
-                    // for example, for a new span that is 1.5 times the
-                    // length of the old span we'd get a multiple of 1 and
-                    // we'd want a multiple of 2. But only do this if we
-                    // exceeed the last boundary by the "jitter delay" (so,
-                    // for example, 1.1 seconds would still count as just 1).
-                    if (localPos - section->end * multiple >
-                         framesPerSecond / impl->errorMargin)
-                        ++multiple;
-                    localPos = section->end * multiple;
-
-                    section->end = localPos;
-                    cerr << "changed end to " << section->end <<
-                        " (multiple of " << multiple << ")\r" << endl;
-                }
-            } else if (impl->recordMode == JackEngineImpl::spanRelative &&
-                       section->end
-                       ) {
-
-                cerr << "\r\nend is " << section->end << ", ";
-
-                // Get the position relative to the start position and trim
-                // anything that looks like human error.
-                int relPos = pos - channel->startPos;
-                if (relPos % section->end <
-                    framesPerSecond / impl->errorMargin
-                    ) {
-                    relPos = (relPos / section->end) * section->end;
-
-                    // Deal with the pathological case where the entire riff
-                    // is less than the margin for error.
-                    if (!relPos) {
-                        cerr << "expanding really short riff!\r\n" << endl;
-                        relPos = section->end;
-                    }
-                }
-
-                // If the new span exceeds the old span, adjust the ending to
-                // be at the beginning of the last frame.
-                if (relPos > section->end) {
-                    // Quantize around the size of the span.
-                    section->end = (relPos / section->end +
-                                     (relPos % section->end ? 1 : 0)
-                                    ) * section->end;
-                    channel->loopPos = channel->startPos;
-                    cerr << "expanding. ";
-                } else if (channel->startPos < section->end &&
-                           pos < section->end
-                           ) {
-                    // The new recording is entirely within the current span,
-                    // so this is just like wrap mode.
-                    channel->loopPos = 0;
-                    cerr << "wrapping. ";
-                } else {
-                    // The new recording must overlap the end.  Make the loop
-                    // pos the start pos.
-                    channel->loopPos = channel->startPos;
-                    cerr << "offset loop. ";
-                }
-
-                cerr << "loop pos = " << channel->loopPos << " new end = " <<
-                    section->end << " recording size = " << relPos <<
-                    "\r\n" << flush;
-            }
-
-            // if we finished recording the first channel, store the end.
-            if (!section->end) {
-                section->end = pos;
-                impl->pos.store(0, memory_order_relaxed);
-            }
-
-            if (!channel->end)
-                channel->end = section->end;
-            cerr << "recorded channel {offset: " << channel->offset <<
-                ", end = " << channel->end << "} engine end = " <<
-                section->end << "\r" << endl;
+            closeRecordChannel(pos);
+            impl->lastRecordChannel = -1;
         }
+
     }
 
     // Playback.
