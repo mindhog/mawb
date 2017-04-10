@@ -483,8 +483,9 @@ void JackEngine::process(unsigned int nframes) {
     Command command = impl->command.load(memory_order_relaxed);
     switch (command) {
         case clearCmd:
-            impl->section = new SectionObj();
             impl->sections.clear();
+            impl->section = new SectionObj();
+            impl->sections.push_back(impl->section);
             impl->command.store(noopCmd, memory_order_relaxed);
             impl->playing.store(true, memory_order_relaxed);
             break;
