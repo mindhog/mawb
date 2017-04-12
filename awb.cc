@@ -121,7 +121,10 @@ class ConnectionHandler : public Reactable {
 
         void processChangeSection(const ChangeSectionRequest &changeSection) {
             // TODO: deal with section indexes.
-            jackEngine.startNextSection();
+            if (changeSection.sectionindex() == -1)
+                jackEngine.startPrevSection();
+            else
+                jackEngine.startNextSection();
         }
 
         void processNewSection(const NewSectionRequest &newSection) {
@@ -369,6 +372,14 @@ int main(int argc, const char **argv) {
     // out how to shut it down cleanly during an exception.
     FluidSynthDispatcherPtr fs;
 
+    bool enablePedal = false;
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "-p"))
+            enablePedal = true;
+        else
+            cerr << "Unknown argument: " << argv[i] << endl;
+    }
+
     try {
         TimeMaster timeMaster;
         timeMaster.setPPB(96);
@@ -410,11 +421,13 @@ int main(int argc, const char **argv) {
             reactor->addReactable(new Term(*jackEng));
         }
 
-        // Open the deka-pedal.
-        int pedal = open("/dev/ttyACM0", O_RDONLY);
-        if (pedal != -1) {
-            cerr << "Adding pedal interface\r" << endl;
-            reactor->addReactable(new Serial(pedal, *jackEng));
+        if (enablePedal) {
+            // Open the deka-pedal.
+            int pedal = open("/dev/ttyACM0", O_RDONLY);
+            if (pedal != -1) {
+                cerr << "Adding pedal interface\r" << endl;
+                reactor->addReactable(new Serial(pedal, *jackEng));
+            }
         }
 
         cerr << "AWB daemon started.\r" << endl;
