@@ -134,36 +134,15 @@ class Comm:
 
     def sendRPC(self, **kwargs):
         rpc = RPC()
-        if 'set_ticks' in kwargs:
-            rpc.set_ticks.append(kwargs['set_ticks'])
-            del kwargs['set_ticks']
-        if 'change_sequencer_state' in kwargs:
-            rpc.change_sequencer_state = kwargs['change_sequencer_state']
-            del kwargs['change_sequencer_state']
-        if 'echo' in kwargs:
-            rpc.echo = kwargs['echo']
-            del kwargs['echo']
-        if 'save_state' in kwargs:
-            rpc.save_state = kwargs['save_state']
-            del kwargs['save_state']
-        if 'load_state' in kwargs:
-            rpc.load_state.filename = kwargs['load_state']
-            del kwargs['load_state']
-        if 'add_track' in kwargs:
-            rpc.add_track.CopyFrom(kwargs['add_track'])
-            del kwargs['add_track']
-        if 'set_initial_state' in kwargs:
-            rpc.set_initial_state.add().CopyFrom(kwargs['set_initial_state'])
-            del kwargs['set_input_state']
-        if 'set_input_params' in kwargs:
-            rpc.set_input_params.CopyFrom(kwargs['set_input_params'])
-            del kwargs['set_input_params']
-        if 'change_jack_state' in kwargs:
-            rpc.change_jack_state.CopyFrom(kwargs['change_jack_state'])
         if 'callback' in kwargs:
             rpc.msg_id = msgId = self.__getMsgId()
             callback = kwargs['callback']
             self.handler.registerMessageCallback(msgId, callback)
+            del kwargs['callback']
+
+        for attr, val in kwargs.iteritems():
+            getattr(rpc, attr).CopyFrom(val)
+
         parcel = rpc.SerializeToString()
         data = struct.pack('<I', len(parcel)) + parcel
         self.handler.queueForOutput(data)
