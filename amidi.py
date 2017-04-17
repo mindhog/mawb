@@ -121,6 +121,11 @@ class PortInfo(object):
     def addr(self):
         return ss.port_info_get_addr(self.rep)
 
+    def __eq__(self, other):
+        otherAddr = other.addr
+        addr = self.addr
+        return addr.client == otherAddr.client and addr.port == otherAddr.port
+
     def __str__(self):
         return '%s/%s' % (ss.client_info_get_name(self.client), self.name)
 
@@ -163,8 +168,12 @@ class Sequencer(object):
                                   )
         )
 
-    def iterPorts(self):
-        """Iterates over the client, port pairs."""
+    def _iterPorts(self):
+        """Iterates over the client, port pairs.
+
+        Note that this iterates over the low-level client and ports,
+        interPortInfos() should be used instead.
+        """
         rc, cinfo = ss.client_info_malloc()
         assert not rc
         rc, pinfo = ss.port_info_malloc()
@@ -177,8 +186,33 @@ class Sequencer(object):
                 yield cinfo, pinfo
 
     def iterPortInfos(self):
-        for client, port in self.iterPorts():
+        for client, port in self._iterPorts():
             yield PortInfo(client, port)
+
+    def iterSubs(self, port):
+        """Iterate over the subscriptions for the port.
+
+        Yields:
+            PortInfo
+        """
+        rc, subs = ss.query_subscribe_malloc()
+        ss.query_subscribe_set_root(subs, port.addr)
+        ss.query_subscribe_set_type(subs, SS.QUERY_SUBS_READ)
+        index = 0
+        ss.query_subscribe_set_index(subs, index)
+        while ss.query_port_subscribers(self.__seq, subs) >= 0:
+            addr = ss.query_subscribe_get_addr(subs)
+
+            # Get client info and port info objects.
+            rc, clientInfo = ss.client_info_malloc()
+            ss.get_any_client_info(self.__seq, addr.client, clientInfo)
+            rc, portInfo = ss.port_info_malloc()
+            ss.get_any_port_info(self.__seq, addr.client, addr.port, portInfo)
+
+            yield PortInfo(clientInfo, portInfo)
+
+            index += 1
+            ss.query_subscribe_set_index(subs, index)
 
     def subscribePort(self, subs):
         """
@@ -191,6 +225,18 @@ class Sequencer(object):
         """All args are integers."""
         ss.connect_from(self.__seq, port, rmt_client, rmt_port)
 
+    def __createSubscription(self, port1, port2):
+        """Returns a new subscription object for the two ports.
+
+        Args:
+            port1: [PortInfo]
+            port2: [PortInfo]
+        """
+        rc, sub = ss.port_subscribe_malloc()
+        ss.port_subscribe_set_sender(sub, port1.addr)
+        ss.port_subscribe_set_dest(sub, port2.addr)
+        return sub
+
     def connect(self, port1, port2):
         """Connect port1 to port2.
 
@@ -198,11 +244,14 @@ class Sequencer(object):
             port1: (PortInfo)
             port2: (PortInfo)
         """
-        rc, sub = ss.port_subscribe_malloc()
-        print sub
-        ss.port_subscribe_set_sender(sub, port1.addr)
-        ss.port_subscribe_set_dest(sub, port2.addr)
+        sub = self.__createSubscription(port1, port2)
         ss.subscribe_port(self.__seq, sub)
+        ss.port_subscribe_free(sub)
+
+    def disconnect(self, port1, port2):
+        """Disconnect two ports."""
+        sub = self.__createSubscription(port1, port2)
+        ss.unsubscribe_port(self.__seq, sub)
         ss.port_subscribe_free(sub)
 
     def hasEvent(self):
@@ -233,7 +282,7 @@ class Sequencer(object):
             name: (str) Midi port name in the form "client/port".
         """
         client, port = name.split('/')
-        for clt, prt in self.iterPorts():
+        for clt, prt in self._iterPorts():
             if client == ss.client_info_get_name(clt) == client and \
                port == ss.port_info_get_name(prt):
                 return PortInfo(clt, prt)
