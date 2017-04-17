@@ -34,6 +34,20 @@ snd_seq_event_t *snd_seq_event_t_new() {
     );
 }
 
+%typemap(in, numinputs = 0) snd_seq_query_subscribe_t ** (void *result) {
+  $1 = ($1_type)&result;
+}
+
+%typemap(argout) snd_seq_query_subscribe_t ** {
+    $result = SWIG_Python_AppendOutput(
+        $result,
+        SWIG_NewPointerObj(SWIG_as_voidptr(*$1),
+                           $*1_descriptor,
+                           0
+                           )
+    );
+}
+
 %apply snd_seq_t ** { snd_seq_client_info_t ** }
 %apply snd_seq_t ** { snd_seq_port_info_t ** }
 %apply snd_seq_t ** { snd_seq_port_subscribe_t ** }
