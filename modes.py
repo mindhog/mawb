@@ -3,6 +3,7 @@
 """
 
 from abc import abstractmethod, ABCMeta
+from collections import defaultdict
 from midi import ControlChange, ProgramChange
 
 class SubState(object):
@@ -36,6 +37,145 @@ class MidiState(SubState):
         self.seq.sendEvent(ControlChange(0, 0, 0, self.bank >> 7), self.port)
         self.seq.sendEvent(ControlChange(0, 0, 32, self.bank & 127), self.port)
         self.seq.sendEvent(ProgramChange(0, 0, self.program), self.port)
+
+class Route(object):
+    __metaclass__ = ABCMeta
+
+    @abstractmethod
+    def getCurrentOutbounds(self, context):
+        """Returns the list of all outbound connections from the source port
+        as a list of keys.
+
+        Keys should be compatible with the values returned from getDestKey().
+
+        Args:
+            context: [Routing] The routing object, which should contain
+                everything that the Route object needs to examine and modify
+                system state.
+        """
+
+    @abstractmethod
+    def getSourceKey(self):
+        """Returns the source key for a given connection."""
+
+    @abstractmethod
+    def getDestKey(self):
+        """Returns the destination key for a given connection."""
+
+    @abstractmethod
+    def disconnect(self, context, destKey):
+        """Remove the system connection from the source port to the
+        destination key.
+
+        Args:
+            context: [Routing] See getCurrentOutbounds.
+            destKey: [object] A key compatible with that returned from
+                getDestKey().
+        """
+
+    @abstractmethod
+    def connect(self, context):
+        """Connect the route.
+
+        Args:
+            context: [Routing] See getCurrentOutbounds.
+        """
+
+    @abstractmethod
+    def __eq__(self, other):
+        pass
+
+class MidiRoute(Route):
+
+    def __init__(self, src, dst):
+        """
+        Args:
+            src: [str] name of source port ("client/port")
+            dst: [str] name of destination port ("client/port")
+        """
+        self.src = src
+        self.dst = dst
+
+    def getCurrentOutbounds(self, context):
+        port = context.seq.getPort(self.src)
+        return [str(sub) for sub in context.seq.iterSubs(port)]
+
+    def getSourceKey(self):
+        return self.src
+
+    def getDestKey(self):
+        return self.dst
+
+    def disconnect(self, context, destKey):
+        context.seq.disconnect(context.seq.getPort(self.src),
+                               context.seq.getPort(destKey)
+                               )
+
+    def connect(self, context):
+        context.seq.connect(context.seq.getPort(self.src),
+                            context.seq.getPort(self.dst)
+                            )
+
+    def __eq__(self, other):
+        return isinstance(other, MidiRoute) and \
+            self.src == other.src and \
+            self.dst == other.dst
+
+class Routing(SubState):
+    """A set of jack audio or midi routes.
+
+    When establishing a set of routes, we clear all connections from all
+    source ports in the routing that are not already connected to their
+    destination ports.
+    """
+
+    def __init__(self, jackClient, seq, *routes):
+        """Constructor.
+
+        args:
+            jackClient: the Jack client object.
+            seq: [amidi.Sequencer]
+            *routes: [list(Route)] A list of routes.
+        """
+        self.jack = jackClient
+        self.seq = seq
+        self.routes = routes
+
+    def __eq__(self, other):
+        return self is other or \
+            self.routes == other.routes
+
+    def activate(self):
+
+        # Mapping of all routes for a given port.  The keys can be whatever
+        # works for a route type, as returned by getSourceKey()
+        routesBySource = defaultdict(list)
+        for route in self.routes:
+            routesBySource[route.getSourceKey()].append(route)
+
+        # Go through the source ports, remove all existing connections that
+        # aren't in the new connections and add all new connections that aren't
+        # in the existing connections.
+        for routes in routesBySource.itervalues():
+
+            # Convert the routes to a map indexed by destination ports.
+            routeMap = dict((route.getDestKey(), route) for route in routes)
+
+            # Go through the existing outbound connections, remove the ones
+            # that aren't in the set of desired routes and remove the ones
+            # that are from the set of routes that we need to connect.
+            for dest in routes[0].getCurrentOutbounds(self):
+                try:
+                    del routeMap[dest]
+                except KeyError:
+                    # We don't want to preserve this connection.  Remove it.
+                    routes[0].disconnect(self, dest)
+
+            # connect everything remaining in the routeMap (only the
+            # connections that we want but don't currently exist should
+            # remain).
+            for route in routeMap.itervalues():
+                route.connect(self)
 
 class StateVec(object):
     """A state vector.
