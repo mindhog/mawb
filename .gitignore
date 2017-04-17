@@ -6,3 +6,8 @@ event_test
 awbd
 jawbd
 .deps
+*.pyc
+*.awb
+alsa_midi.py
+alsa_midi_wrap.c
+build
