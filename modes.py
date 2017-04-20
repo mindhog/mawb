@@ -85,7 +85,10 @@ class Route(object):
     def __eq__(self, other):
         pass
 
-class MidiRoute(Route):
+class RouteImpl(Route):
+    """Partial route implementation for routes whose keys are simple
+    strings.
+    """
 
     def __init__(self, src, dst):
         """
@@ -96,15 +99,22 @@ class MidiRoute(Route):
         self.src = src
         self.dst = dst
 
-    def getCurrentOutbounds(self, context):
-        port = context.seq.getPort(self.src)
-        return [str(sub) for sub in context.seq.iterSubs(port)]
-
     def getSourceKey(self):
         return self.src
 
     def getDestKey(self):
         return self.dst
+
+    def __eq__(self, other):
+        return isinstance(other, RouteImpl) and \
+            self.src == other.src and \
+            self.dst == other.dst
+
+class MidiRoute(RouteImpl):
+
+    def getCurrentOutbounds(self, context):
+        port = context.seq.getPort(self.src)
+        return [str(sub) for sub in context.seq.iterSubs(port)]
 
     def disconnect(self, context, destKey):
         context.seq.disconnect(context.seq.getPort(self.src),
@@ -116,10 +126,18 @@ class MidiRoute(Route):
                             context.seq.getPort(self.dst)
                             )
 
-    def __eq__(self, other):
-        return isinstance(other, MidiRoute) and \
-            self.src == other.src and \
-            self.dst == other.dst
+class JackRoute(RouteImpl):
+
+    def getCurrentOutbounds(self, context):
+        return [
+            port.name for port in context.jack.get_all_connections(self.src)
+        ]
+
+    def disconnect(self, context, destKey):
+        context.jack.disconnect(self.src, destKey)
+
+    def connect(self, context):
+        context.jack.connect(self.src, self.dst)
 
 class Routing(SubState):
     """A set of jack audio or midi routes.
