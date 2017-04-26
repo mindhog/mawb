@@ -150,6 +150,8 @@ struct Channel : public RCBase {
 
 SPUG_RCPTR(SectionObj);
 
+const int defaultChannels = 8;
+
 class SectionObj : public RCBase {
     public:
         vector<ChannelPtr> channels;
@@ -157,7 +159,10 @@ class SectionObj : public RCBase {
         // End of the section span.
         int end;
 
-        SectionObj() : end(0) {}
+        SectionObj() : end(0) {
+            for (int i = 0; i < defaultChannels; ++i)
+                channels.push_back(new Channel());
+        }
 };
 
 enum Command {
@@ -542,7 +547,7 @@ void JackEngine::process(unsigned int nframes) {
             if (impl->newSectionLatched)
                 section = impl->changeSections();
 
-            if (impl->section->channels.empty())
+            if (!section->end)
                 pos = 0;
             impl->recording = true;
             impl->lastRecordChannel = recordChannel;
@@ -597,8 +602,8 @@ void JackEngine::process(unsigned int nframes) {
         for (auto channel : section->channels) {
             ++channelIndex;
             if (channel->enabled && recordChannel != channelIndex) {
-                assert(channel->end);
                 cerr << channelIndex << ": ";
+                if (!channel->end) continue;
                 WaveBuf *buf = channel->getReadBuffer(pos);
                 if (!buf) continue;
 
