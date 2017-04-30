@@ -14,6 +14,14 @@ class AWBClient(object):
         self.jack = jack.Client('MAWBSession')
         self.seq = amidi.getSequencer()
 
+    def __convertToPortInfo(self, src):
+        """Convert 'src' to PortInfo, if it is PortInfo we just return it."""
+        if isinstance(src, amidi.PortInfo): return src
+        srcPort = self.seq.getPort(src)
+        if not srcPort:
+            print 'Port %s not defined' % src
+        return srcPort
+
     def midiConnect(self, src, dst):
         """Connect two midi ports.
 
@@ -21,14 +29,9 @@ class AWBClient(object):
             src: [str] Source port in "client/port" format.
             dst: [str] Destination port in "client/port" format.
         """
-        srcPort = self.seq.getPort(src)
-        if not srcPort:
-            print 'Port %s not defined' % src
-            return
-        dstPort = self.seq.getPort(dst)
-        if not dstPort:
-            print 'Port %s not defined' % dst
-            return
+        srcPort = self.__convertToPortInfo(src)
+        dstPort = self.__convertToPortInfo(dst)
+        if not srcPort or not dstPort: return
         self.seq.connect(srcPort, dstPort)
 
     def waitForJack(self, portName, timeout=3.0):
@@ -99,3 +102,15 @@ class AWBClient(object):
         """
         for con in self.jack.get_all_connections(port):
             self.jack.disconnect(port, con)
+
+    def makeMidiOutPort(self, name):
+        """Creates a midi output port.
+
+        Args:
+            name: [str] A midi port name (this should not include the client
+                name, the resulting port will be in the system's client.
+
+        Returns:
+            [amidi.PortInfo]
+        """
+        return self.seq.createOutputPort(name)
