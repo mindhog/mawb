@@ -280,6 +280,9 @@ class Sequencer(object):
 
         Args:
             name: (str) Midi port name in the form "client/port".
+
+        Returns:
+            [PortInfo]
         """
         client, port = name.split('/')
         for clt, prt in self._iterPorts():
