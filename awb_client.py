@@ -184,6 +184,13 @@ class AWBClient(object):
         self.sectionIndex = 0
         self.sectionCount = 1
 
+    def togglePause(self):
+        """Toggle pause/play of the daemon."""
+        req = mawb_pb2.ChangeJackStateRequest()
+        req.state = mawb_pb2.PLAY if self.paused else mawb_pb2.IDLE
+        self.comm.sendRPC(change_jack_state = req)
+        self.paused = not self.paused
+
     def activate(self, channel):
         """Activate the state vector for the specified channel.
 
@@ -228,12 +235,12 @@ class AWBClient(object):
                     if self.sectionIndex == self.sectionCount - 1:
                         print 'sending new section request'
                         sectionCount += 1
-                        c.sendRPC(new_section = mawb_pb2.NewSectionRequest())
+                        self.comm.sendRPC(new_section = mawb_pb2.NewSectionRequest())
                         continue
                     print 'changing section index'
                     req.sectionIndex = 1
 
-                c.sendRPC(change_section = req)
+                self.comm.sendRPC(change_section = req)
                 continue
 
             if release:
