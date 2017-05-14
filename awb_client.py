@@ -7,6 +7,13 @@ import threading
 from comm import Comm
 from spug.io.proactor import getProactor
 
+# Channel Status
+
+NONEMPTY = 1
+RECORD = 2
+STICKY = 4
+ACTIVE = 8
+
 class AWBClient(object):
     """AWB Client hub.
 
@@ -33,6 +40,12 @@ class AWBClient(object):
         self.sectionCount = 1
         self.voices = []
         self.state = None
+
+        # {int: int}.  Maps channels to current status.
+        self.__channels = dict((i, 0) for i in range(8))
+
+        # channel subscribers (dict<int, list<callback<int, int>>>)
+        self.__subs = {}
 
         # Start the proactor thread.  We do this after Comm() has been
         # created so there are connections to manage, otherwise the proactor
@@ -165,11 +178,33 @@ class AWBClient(object):
         self.comm.sendRPC(change_jack_state = req)
         self.recording[channel] = False
         self.recordChannel = -1
+        self.__setStatus(channel, record = False, nonempty = True)
+
+    def __setStatus(self, channel, nonempty = None, record = None,
+                    sticky = None,
+                    active = None):
+        flags = self.__channels[channel]
+        if nonempty is not None:
+            flags = flags | NONEMPTY if nonempty else flags & ~NONEMPTY
+        if record is not None:
+            flags = flags | RECORD if record else flags & ~RECORD
+        if sticky is not None:
+            flags = flags | STICKY if sticky else flags & ~STICKY
+        if active is not None:
+            flags = flags | ACTIVE if active else flags & ~ACTIVE
+        self.__channels[channel] = flags
+        for cb in self.__subs.get(channel, []):
+            cb(channel, flags)
 
     def startRecord(self, channel):
         # If we're recording on another channel, mark that we've ended it.
         if self.recordChannel >= 0:
             self.recording[self.recordChannel] = False
+
+            # Turn off recording and active, turn on nonempty.
+            self.__setStatus(self.recordChannel, record = False, active = False,
+                             nonempty = True
+                             )
 
         req = mawb_pb2.ChangeJackStateRequest()
         req.state = mawb_pb2.RECORD
@@ -178,11 +213,15 @@ class AWBClient(object):
         self.recording[channel] = True
         self.recordChannel = channel
         self.paused = False
+        self.__setStatus(channel, record = True, active = True)
 
     def clearAllState(self):
         self.comm.sendRPC(clear_state = mawb_pb2.ClearStateRequest())
         self.sectionIndex = 0
         self.sectionCount = 1
+
+        for channel in self.__subs.iterkeys():
+            self.__setStatus(channel, active = True)
 
     def togglePause(self):
         """Toggle pause/play of the daemon."""
@@ -202,6 +241,13 @@ class AWBClient(object):
         """
         self.voices[channel].activate(self.state)
         self.state = self.voices[channel]
+
+        # Change status, deactivate currently active channel and activate new
+        # one.
+        for ch, stat in self.__channels.iteritems():
+            if stat & ACTIVE:
+                self.__setStatus(ch, active = False)
+        self.__setStatus(channel, active = True)
 
     def handlePedal():
         """Background thread for processing pedal input."""
@@ -266,3 +312,14 @@ class AWBClient(object):
         if self.pedal:
             os.write(self.threadPipeWr, 'end')
             self.pedalThread.join()
+
+    def addChannelSubscriber(self, channel, callback):
+        """Adds a subscriber for status changes to the given channel.
+
+        Args:
+            channel: [int]
+            callback: [callable<int, int>] A callback accepting a channel
+                number and a status bitmask.  Status bits are NONEMPTY,
+                RECORD, STICKY and ACTIVE.
+        """
+        self.__subs.setdefault(channel, []).append(callback)
