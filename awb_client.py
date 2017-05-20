@@ -4,6 +4,8 @@ import jack
 import mawb_pb2
 import os
 import threading
+import select
+import time
 from comm import Comm
 from spug.io.proactor import getProactor
 
@@ -123,6 +125,7 @@ class AWBClient(object):
         Raises:
             Exception: On a timeout.
         """
+        endTime = time.time() + timeout
         while time.time() < endTime:
             for port in self.seq.iterPortInfos():
                 if port.name == portName:
@@ -249,7 +252,7 @@ class AWBClient(object):
                 self.__setStatus(ch, active = False)
         self.__setStatus(channel, active = True)
 
-    def handlePedal():
+    def handlePedal(self):
         """Background thread for processing pedal input."""
 
         # "closed clean" means that we ended the record of the last channel by
@@ -258,8 +261,10 @@ class AWBClient(object):
         closedClean = False
 
         while True:
-            rdx, wrx, erx = select.select([self.pedal, threadPipeRd], [], [])
-            if threadPipeRd in rdx:
+            rdx, wrx, erx = select.select(
+                [self.pedal, self.threadPipeRd], [], []
+            )
+            if self.threadPipeRd in rdx:
                 break
 
             action = self.pedal.read(1)
@@ -280,7 +285,7 @@ class AWBClient(object):
                 elif action == 9:
                     if self.sectionIndex == self.sectionCount - 1:
                         print 'sending new section request'
-                        sectionCount += 1
+                        self.sectionCount += 1
                         self.comm.sendRPC(new_section = mawb_pb2.NewSectionRequest())
                         continue
                     print 'changing section index'
