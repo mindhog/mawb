@@ -140,6 +140,15 @@ message ChangeSectionRequest {
 message NewSectionRequest {
 }
 
+message ChangeChannelAttrs {
+
+    // Channel index.
+    optional int32 channel = 1;
+
+    // Set/clear channel sticky flag.
+    optional bool sticky = 2;
+}
+
 // A "wave" is a reference to a wave-file and some meta-data to indicate how
 // the audio in that file is to be played back.
 message Wave {
@@ -207,6 +216,7 @@ message RPC {
     optional LoadStateRequest jack_load_state = 14;
     optional ChangeSectionRequest change_section = 15;
     optional NewSectionRequest new_section = 16;
+    optional ChangeChannelAttrs change_channel_attrs = 17;
 }
 
 // An AST node for the macro language.

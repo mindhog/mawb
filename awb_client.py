@@ -252,6 +252,23 @@ class AWBClient(object):
                 self.__setStatus(ch, active = False)
         self.__setStatus(channel, active = True)
 
+    def nextOrNewSection(self):
+        if self.sectionIndex == self.sectionCount - 1:
+            print 'sending new section request'
+            self.sectionCount += 1
+            self.comm.sendRPC(new_section = mawb_pb2.NewSectionRequest())
+            return
+        print 'changing section index'
+        req = mawb_pb2.ChangeSectionRequest()
+        req.sectionIndex = 1
+
+        self.comm.sendRPC(change_section = req)
+
+    def prevSection(self):
+        req = mawb_pb2.ChangeSectionRequest()
+        req.sectionIndex = -1
+        print 'setting to previous section'
+
     def handlePedal(self):
         """Background thread for processing pedal input."""
 
@@ -277,21 +294,10 @@ class AWBClient(object):
             if action in (8, 9):
                 if release:
                     continue
-
-                req = mawb_pb2.ChangeSectionRequest()
                 if action == 8:
-                    req.sectionIndex = -1
-                    print 'setting to previous section'
+                    self.prevSection()
                 elif action == 9:
-                    if self.sectionIndex == self.sectionCount - 1:
-                        print 'sending new section request'
-                        self.sectionCount += 1
-                        self.comm.sendRPC(new_section = mawb_pb2.NewSectionRequest())
-                        continue
-                    print 'changing section index'
-                    req.sectionIndex = 1
-
-                self.comm.sendRPC(change_section = req)
+                    self.nextOrNewSection()
                 continue
 
             if release:
@@ -328,3 +334,21 @@ class AWBClient(object):
                 RECORD, STICKY and ACTIVE.
         """
         self.__subs.setdefault(channel, []).append(callback)
+
+    def setChannelSticky(self, channel, sticky):
+        """Set or clear the channel sticky flag.
+
+        Args:
+            channel: [int]
+            sticky: [bool]
+        """
+
+        setAttrs = mawb_pb2.ChangeChannelAttrs()
+        setAttrs.channel = channel
+        setAttrs.sticky = sticky
+        self.comm.sendRPC(change_channel_attrs = setAttrs)
+        self.__setStatus(channel, sticky = sticky)
+
+    def toggleChannelSticky(self, channel):
+        """Toggle the channel sticky flag."""
+        self.setChannelSticky(channel, not self.__channels[channel] & STICKY)
