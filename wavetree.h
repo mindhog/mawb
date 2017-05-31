@@ -2,6 +2,8 @@
 #define awb_wavetree_h_
 
 #include <unistd.h>
+#include <spug/RCBase.h>
+#include <spug/RCPtr.h>
 
 class WaveTreeNode;
 
@@ -17,10 +19,11 @@ struct WaveBuf {
     ~WaveBuf() { delete buffer; }
 };
 
+SPUG_RCPTR(WaveTree);
 
 // WaveTree is a sparse tree of WaveBuf's.
 // Every buffer must be of the same size WaveTree::framesPerBuffer.
-class WaveTree {
+class WaveTree : public spug::RCBase {
     private:
         WaveTreeNode *root;
 

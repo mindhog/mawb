@@ -45,6 +45,13 @@ class JackEngine {
         void endPlay();
         bool isPlaying() const;
 
+        // Set the "sticky" flag on the channel.  A sticky channel will
+        // transfer its state to the corresponding channel in a new section.
+        void setSticky(int channel, bool sticky);
+
+        // Get the sticky flag for a channel.
+        bool getSticky(int channel) const;
+
         // Clear all buffers, restore the engine to a pristine state.
         void clear();
 

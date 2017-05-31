@@ -79,6 +79,9 @@ class MainWin(Tk):
         self.bind('f', self.foo)
 
         self.bind('r', self.toggleRecord)
+        self.bind('k', self.toggleSticky)
+        self.bind('.', self.nextSection)
+        self.bind(',', self.prevSection)
 
         for i in range(0, 8):
 
@@ -118,6 +121,22 @@ class MainWin(Tk):
         elif self.client.recordEnabled:
             self.client.startRecord(channel)
         self.status.configure(text = 'Recording on %s' % channel)
+
+    def __getActiveChannel(self):
+        # Move this to awb_client
+        for i, ch in enumerate(self.channels):
+            if ch.active:
+                return i
+
+    def toggleSticky(self, event):
+        channel = self.__getActiveChannel()
+        self.client.toggleChannelSticky(channel)
+
+    def nextSection(self, event):
+        self.client.nextOrNewSection()
+
+    def prevSection(self, event):
+        self.client.prevSection()
 
 
 def runTkUi(client):

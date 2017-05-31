@@ -131,6 +131,13 @@ class ConnectionHandler : public Reactable {
             jackEngine.startNewSection();
         }
 
+        void processChangeChannelAttrs(const ChangeChannelAttrs &changeAttrs) {
+            if (changeAttrs.has_sticky())
+                jackEngine.setSticky(changeAttrs.channel(),
+                                     changeAttrs.sticky()
+                                     );
+        }
+
         // Serialize the message to the output buffer to be sent as soon as
         // possible.
         void sendMessage(Message &msg) {
@@ -250,6 +257,9 @@ class ConnectionHandler : public Reactable {
 
                 if (rpc.has_new_section())
                     processNewSection(rpc.new_section());
+
+                if (rpc.has_change_channel_attrs())
+                    processChangeChannelAttrs(rpc.change_channel_attrs());
 
                 // Truncate the used portion of the buffer.
                 inData = inData.substr(size + 4);

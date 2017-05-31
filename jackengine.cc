@@ -32,7 +32,7 @@ namespace {
 SPUG_RCPTR(Channel);
 
 struct Channel : public RCBase {
-    WaveTree *data;
+    WaveTreePtr data;
 
     // "enabled" means that a channel is playing audio.
     bool enabled;
@@ -55,6 +55,9 @@ struct Channel : public RCBase {
     // position when we look up buffers from audio data during replay.
     int offset;
 
+    // If true, the channel state is copied to the new section.
+    bool sticky;
+
     // Create a channel and allocate an initial buffer.
     Channel() :
         data(new WaveTree()),
@@ -62,14 +65,19 @@ struct Channel : public RCBase {
         end(0),
         loopPos(0),
         startPos(0),
-        offset(0) {
+        offset(0),
+        sticky(false) {
     }
 
-    ~Channel() {
-        delete data;
+    Channel(const Channel &other) :
+        data(other.data),
+        enabled(other.enabled),
+        end(other.end),
+        loopPos(other.loopPos),
+        offset(other.offset),
+        sticky(other.sticky) {
     }
 
-    Channel(const Channel &other) = delete;
 
     // Returns a buffer for writing at the given position, creating it if
     // necessary.
@@ -159,6 +167,21 @@ class SectionObj : public RCBase {
         // End of the section span.
         int end;
 
+        // Construct a new section, inherit sticky channels from the last one.
+        SectionObj(const SectionObj *lastSection) {
+            for (int i = 0; i < defaultChannels; ++i) {
+                if (i < lastSection->channels.size() &&
+                    lastSection->channels[i]->sticky
+                    ) {
+                    cerr << "XXX channel " << i << " is sticky" << endl;
+                    channels.push_back(new Channel(*lastSection->channels[i]));
+                } else {
+                    cerr << "XXX channel " << i << " is not sticky" << endl;
+                    channels.push_back(new Channel());
+                }
+            }
+        }
+
         SectionObj() : end(0) {
             for (int i = 0; i < defaultChannels; ++i)
                 channels.push_back(new Channel());
@@ -180,7 +203,16 @@ enum Command {
     // Begin the next or previous section (same cases as newSectionCmd).
     nextSectionCmd,
     prevSectionCmd,
+
+    // Set/clear channel stickiness.  Low-byte contains the channel number.
+    setChannelSticky = 256,
+    clearChannelSticky = 512
 };
+
+inline Command makeParamCommand(Command cmd, int param) {
+    assert(param <= 0xff && "command parameter too big");
+    return static_cast<Command>(static_cast<int>(cmd) | param);
+}
 
 class JackEngineImpl : public JackEngine {
     public:
@@ -320,7 +352,7 @@ class JackEngineImpl : public JackEngine {
             switch (newSectionLatched) {
                 case newSectionCmd:
                     cerr << "new section\r" << endl;
-                    section = new SectionObj();
+                    section = new SectionObj(SectionObjPtr::rcast(section));
                     sections.push_back(section);
                     sectionIndex = sections.size() - 1;
                     break;
@@ -486,6 +518,12 @@ void JackEngine::process(unsigned int nframes) {
 
     // Process a command.
     Command command = impl->command.load(memory_order_relaxed);
+    int param = 0;
+    if (command > 0xff) {
+        param = command & 0xff;
+        command = static_cast<Command>(static_cast<int>(command) & 0xffff00);
+    }
+
     switch (command) {
         case clearCmd:
             impl->sections.clear();
@@ -510,6 +548,12 @@ void JackEngine::process(unsigned int nframes) {
             cerr << "\r\nlatched for prev section\r" << endl;
             impl->newSectionLatched = prevSectionCmd;
             impl->command.store(noopCmd, memory_order_relaxed);
+            break;
+        case setChannelSticky:
+            impl->section->channels[param]->sticky = true;
+            break;
+        case clearChannelSticky:
+            impl->section->channels[param]->sticky = false;
             break;
         default:
             assert(false && "Unknown command received.");
@@ -687,6 +731,11 @@ void JackEngine::endPlay() {
 bool JackEngine::isPlaying() const {
     const JackEngineImpl *impl = static_cast<const JackEngineImpl *>(this);
     return impl->playing.load(memory_order_relaxed);
+}
+
+void JackEngine::setSticky(int channel, bool sticky) {
+    JackEngineImpl *impl = static_cast<JackEngineImpl *>(this);
+    impl->command.store(makeParamCommand(setChannelSticky, channel));
 }
 
 void JackEngine::clear() {
