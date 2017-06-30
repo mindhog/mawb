@@ -374,6 +374,7 @@ class JackEngineImpl : public JackEngine {
             }
 
             newSectionLatched = noopCmd;
+            pos = 0;
             return section;
         }
 };
