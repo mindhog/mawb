@@ -168,7 +168,7 @@ class SectionObj : public RCBase {
         int end;
 
         // Construct a new section, inherit sticky channels from the last one.
-        SectionObj(const SectionObj *lastSection) {
+        SectionObj(const SectionObj *lastSection) : end(0) {
             for (int i = 0; i < defaultChannels; ++i) {
                 if (i < lastSection->channels.size() &&
                     lastSection->channels[i]->sticky
