@@ -256,6 +256,7 @@ class AWBClient(object):
         if self.sectionIndex == self.sectionCount - 1:
             print 'sending new section request'
             self.sectionCount += 1
+            self.sectionIndex += 1
             self.comm.sendRPC(new_section = mawb_pb2.NewSectionRequest())
             return
         print 'changing section index'
@@ -263,11 +264,14 @@ class AWBClient(object):
         req.sectionIndex = 1
 
         self.comm.sendRPC(change_section = req)
+        self.sectionIndex += 1
 
     def prevSection(self):
+        print 'setting to previous section'
         req = mawb_pb2.ChangeSectionRequest()
         req.sectionIndex = -1
-        print 'setting to previous section'
+        self.comm.sendRPC(change_section = req)
+        self.sectionIndex = (self.sectionIndex - 1) % self.sectionCount
 
     def handlePedal(self):
         """Background thread for processing pedal input."""
