@@ -592,8 +592,6 @@ void JackEngine::process(unsigned int nframes) {
             if (impl->newSectionLatched)
                 section = impl->changeSections();
 
-            if (!section->end)
-                pos = 0;
             impl->recording = true;
             impl->lastRecordChannel = recordChannel;
             startedRecording = true;
@@ -609,12 +607,42 @@ void JackEngine::process(unsigned int nframes) {
                 impl->lastRecordChannel = recordChannel;
             }
         } else {
+            // Get the existing channel.
             channel = section->channels[recordChannel];
         }
 
         // If we just started recording, store the start pos.
-        if (startedRecording)
+        if (startedRecording) {
+
+            if (section->end) {
+                // The track isn't empty.
+
+                // If this track is the full span, set the section end to the
+                // next longest span.
+                if (section->end == channel->end) {
+                    channel->end = 0;
+
+                    // Find the next largest channel track, make that the new
+                    // ending.
+                    int newEnd = 0;
+                    for (auto ch : section->channels) {
+                        if (ch->end > newEnd)
+                            newEnd = ch->end;
+                    }
+
+                    cerr << "replacing end of section with " << section->end << "\r" <<
+                        endl;
+                    section->end = newEnd;
+                }
+                // TODO: we need to zero out the channel end here, too.
+            }
+
+            // If the section is currently empty, reset the position to zero.
+            if (!section->end)
+                pos = 0;
+
             channel->startPos = pos;
+        }
 
         // Record the buffer.
         WaveBuf *buf = channel->getWriteBuffer(pos);;
