@@ -1,5 +1,6 @@
 
-%module alsa_midi
+%module(threads = 1) alsa_midi
+%nothread;
 
 %include "typemaps.i"
 
@@ -9,12 +10,19 @@ void snd_seq_ev_set_direct(snd_seq_event_t *event);
 void snd_seq_ev_set_subs(snd_seq_event_t *event);
 void snd_seq_ev_set_fixed(snd_seq_event_t *event);
 
+// Release the GIL when blocked on an event input.
+%thread snd_seq_event_input;
+
 %{
 #include <alsa/asoundlib.h>
 #include <alsa/seq_event.h>
 
-snd_seq_event_t *snd_seq_event_t_new() {
+snd_seq_event_t *snd_seq_event_t_new(void) {
     return calloc(sizeof(snd_seq_event_t), 1);
+}
+
+struct pollfd *pollfd_alloc(int count) {
+    return calloc(sizeof(struct pollfd), count);
 }
 
 %}
@@ -61,3 +69,4 @@ snd_seq_event_t *snd_seq_event_t_new() {
 %include "/usr/include/alsa/seqmid.h"
 
 snd_seq_event_t *snd_seq_event_t_new();
+struct pollfd *pollfd_alloc(int count);
