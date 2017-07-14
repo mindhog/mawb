@@ -82,6 +82,8 @@ class MainWin(Tk):
         self.bind('k', self.toggleSticky)
         self.bind('.', self.nextSection)
         self.bind(',', self.prevSection)
+        self.bind('<space>', self.togglePause)
+        self.bind('K', self.clearAllState)
 
         for i in range(0, 8):
 
@@ -112,6 +114,19 @@ class MainWin(Tk):
         self.recordMode.configure(text = self.client.recordEnabled and 'R' or
                                   'P'
                                   )
+
+    def togglePause(self, event):
+        self.client.togglePause()
+        if self.client.paused:
+            self.status.configure(text = 'Paused')
+        else:
+            self.status.configure(text = 'Playing')
+
+    def clearAllState(self, event):
+        self.client.clearAllState()
+        self.status.configure(text = 'Idle')
+        for channel in self.channels:
+            channel.changeStatus(0)
 
     def toggleChannel(self, channel):
         # using "channel" as program
