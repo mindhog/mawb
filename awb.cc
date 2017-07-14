@@ -397,8 +397,8 @@ int main(int argc, const char **argv) {
 
         // Create the sequencer.
         Sequencer sequencer(SND_SEQ_OPEN_INPUT | SND_SEQ_OPEN_OUTPUT, 0);
-        Port readport = sequencer.makeReadPort("mawb");
-        Port writeport = sequencer.makeWritePort("mawb");
+        Port readport = sequencer.makeReadPort("mawb_out");
+        Port writeport = sequencer.makeWritePort("mawb_in");
 
         // Set up the input chain: Alsa port -> InputDispatcher ->
         // FluidSynthDispatcher.
