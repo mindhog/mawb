@@ -3,6 +3,7 @@
 import alsa_midi
 from midi import Event, NoteOn, NoteOff, PitchWheel, ProgramChange, \
     ControlChange, SysContinue, SysEx, SysStart, SysStop
+from select import POLLIN
 
 class Shorthand:
     """Class to elide name prefixes, giving us shorter versions of names."""
@@ -191,6 +192,13 @@ class Sequencer(object):
             port: [PortInfo]
         """
         ss.delete_simple_port(self.__seq, port.addr.port)
+
+    def getPollHandle(self):
+        """Returns a poll handle for the sequencer."""
+        fds = alsa_midi.PollfdArray(1)
+        assert ss.poll_descriptors(self.__seq, fds.cast(), 1, POLLIN) == 1
+        print 'XXX events is %s' % fds[0].events
+        return fds[0].fd
 
     def _iterPorts(self):
         """Iterates over the client, port pairs.
