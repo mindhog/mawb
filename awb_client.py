@@ -28,6 +28,9 @@ class AWBClient(object):
         voices: [list<modes.StateVec>] The state vector map, should be one
             per channel.
         state: [modes.StateVec] The current state vector.
+        dispatchEvent: [callable<midi.Event>] A user function to manage event
+            processing.
+        midiIn: [amidi.Port] the midi input port
     """
 
     def __init__(self, recordEnabled = False, paused = True):
@@ -42,12 +45,16 @@ class AWBClient(object):
         self.sectionCount = 1
         self.voices = []
         self.state = None
+        self.dispatchEvent = None
 
         # {int: int}.  Maps channels to current status.
         self.__channels = dict((i, 0) for i in range(8))
 
         # channel subscribers (dict<int, list<callback<int, int>>>)
         self.__subs = {}
+
+        # Create a midi input port.
+        self.midiIn = self.makeMidiInPort('in')
 
         # Start the proactor thread.  We do this after Comm() has been
         # created so there are connections to manage, otherwise the proactor
@@ -72,6 +79,11 @@ class AWBClient(object):
         if self.pedal:
             self.pedalThread = threading.Thread(target = self.handlePedal)
             self.pedalThread.start()
+
+    def startMidiInputThread(self):
+        # Start the midi input thread.
+        midiInputThread = threading.Thread(target = self.handleMidiInput)
+        midiInputThread.start()
 
     def __convertToPortInfo(self, src):
         """Convert 'src' to PortInfo, if it is PortInfo we just return it."""
@@ -174,6 +186,18 @@ class AWBClient(object):
             [amidi.PortInfo]
         """
         return self.seq.createOutputPort(name)
+
+    def makeMidiInPort(self, name):
+        """Creates a midi input port.
+
+        Args:
+            name: [str] A midi port name (this should not include the client
+                name, the resulting port will be in the system's client.
+
+        Returns:
+            [amidi.PortInfo]
+        """
+        return self.seq.createInputPort(name)
 
     def endRecord(self, channel):
         req = mawb_pb2.ChangeJackStateRequest()
@@ -322,8 +346,16 @@ class AWBClient(object):
                     self.endRecord(channel)
                     closedClean = True
 
+    def handleMidiInput(self):
+        while True:
+            event = self.seq.getEvent()
+            if self.dispatchEvent:
+                self.dispatchEvent(event)
+
     def stop(self):
         self.comm.close()
+        self.seq.deletePort(self.midiIn)
+        self.seq.close()
         if self.pedal:
             os.write(self.threadPipeWr, 'end')
             self.pedalThread.join()
