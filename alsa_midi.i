@@ -3,6 +3,8 @@
 %nothread;
 
 %include "typemaps.i"
+%include "carrays.i"
+%include "cmalloc.i"
 
 // Fake out swig to get some useful macros.
 void snd_seq_ev_set_source(snd_seq_event_t *event, int port);
@@ -16,16 +18,17 @@ void snd_seq_ev_set_fixed(snd_seq_event_t *event);
 %{
 #include <alsa/asoundlib.h>
 #include <alsa/seq_event.h>
+#include <poll.h>   // to get pollfd
 
 snd_seq_event_t *snd_seq_event_t_new(void) {
     return calloc(sizeof(snd_seq_event_t), 1);
 }
 
-struct pollfd *pollfd_alloc(int count) {
-    return calloc(sizeof(struct pollfd), count);
-}
+typedef struct pollfd Pollfd;
 
 %}
+
+%array_class(Pollfd, PollfdArray);
 
 // mapping to allow us to return the snd_seq_t ** object we've created.
 %typemap(in, numinputs = 0) snd_seq_t ** (void *result) {
@@ -69,4 +72,11 @@ struct pollfd *pollfd_alloc(int count) {
 %include "/usr/include/alsa/seqmid.h"
 
 snd_seq_event_t *snd_seq_event_t_new();
-struct pollfd *pollfd_alloc(int count);
+
+// We have to reproduce this here, the definition probably isn't directly in
+// poll.h.
+typedef struct pollfd {
+    int fd;
+    short events;
+    short revents;
+} Pollfd;

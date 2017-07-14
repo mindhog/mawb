@@ -16,6 +16,10 @@ RECORD = 2
 STICKY = 4
 ACTIVE = 8
 
+class Pipe(object):
+    def __init__(self,):
+        self.read, self.write = os.pipe()
+
 class AWBClient(object):
     """AWB Client hub.
 
@@ -82,8 +86,9 @@ class AWBClient(object):
 
     def startMidiInputThread(self):
         # Start the midi input thread.
-        midiInputThread = threading.Thread(target = self.handleMidiInput)
-        midiInputThread.start()
+        self.midiInputControl = Pipe()
+        self.midiInputThread = threading.Thread(target = self.handleMidiInput)
+        self.midiInputThread.start()
 
     def __convertToPortInfo(self, src):
         """Convert 'src' to PortInfo, if it is PortInfo we just return it."""
@@ -347,15 +352,23 @@ class AWBClient(object):
                     closedClean = True
 
     def handleMidiInput(self):
+        handle = self.seq.getPollHandle()
         while True:
+            rdx, wrx, erx = select.select(
+                [handle, self.midiInputControl.read], [], []
+            )
+            if self.midiInputControl.read in rdx:
+                break
+
             event = self.seq.getEvent()
             if self.dispatchEvent:
                 self.dispatchEvent(event)
 
     def stop(self):
         self.comm.close()
-        self.seq.deletePort(self.midiIn)
         self.seq.close()
+        os.write(self.midiInputControl.write, 'end')
+        self.midiInputThread.join()
         if self.pedal:
             os.write(self.threadPipeWr, 'end')
             self.pedalThread.join()
