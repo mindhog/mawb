@@ -304,6 +304,28 @@ class SysEx(Event):
    def __repr__(self):
       return 'SysEx(%s, %r)' % (self.time, self.data)
 
+class SysRealtime(Event):
+   def __init__(self, time):
+      Event.__init__(self, time)
+   
+   def asMidiString(self, status):
+      return 0xFA, chr(0xFA)
+   
+   def __str__(self):
+      return self.__class__.__name__
+
+   def __repr__(self):
+      return '%s(%s)' % (self.__class__.__name__, self.time)
+
+class SysStart(SysRealtime):
+   _code = 0xFA
+
+class SysContinue(SysRealtime):
+   _code = 0xFB
+
+class SysStop(SysRealtime):
+   _code = 0xFC
+
 # XXX Still need the following classes:
 #     AfterTouch
 #     ChannelPressure

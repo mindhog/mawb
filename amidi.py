@@ -2,7 +2,7 @@
 
 import alsa_midi
 from midi import Event, NoteOn, NoteOff, PitchWheel, ProgramChange, \
-    ControlChange, SysEx
+    ControlChange, SysContinue, SysEx, SysStart, SysStop
 
 class Shorthand:
     """Class to elide name prefixes, giving us shorter versions of names."""
@@ -26,13 +26,19 @@ SSE = Shorthand(alsa_midi, 'SND_SEQ_EVENT_')
 
 class UnknownEvent(Event):
     """Created when we get an event type that we don't support yet."""
+    def __init__(self, time, type):
+        Event.__init__(self, time)
+        self.type = type
+
+    def __str__(self):
+        return 't: %s, type: %s' % (self.time, self.type)
 
 def makeEvent(rawEvent, time = 0):
     """Create a midi event from a raw event received from the sequencer.
     """
     eventData = rawEvent.data
     if rawEvent.type == SSE.NOTEON:
-        result = NoteOn(time, eventData.note.channel, EventData.note.node,
+        result = NoteOn(time, eventData.note.channel, eventData.note.note,
                         eventData.note.velocity
                         )
     elif rawEvent.type == SSE.NOTEOFF:
@@ -47,12 +53,19 @@ def makeEvent(rawEvent, time = 0):
                                )
     elif rawEvent.type == SSE.CONTROLLER:
         result = ControlChange(time, eventData.control.channel,
+                               eventData.control.param,
                                eventData.control.value
                                )
     elif rawEvent.type == SSE.SYSEX:
         # XXX need a translator to support sysex events as they have a pointer
         # to external data.
         result = SysEx(time, '')
+    elif rawEvent.type == SSE.START:
+        result = SysStart(time)
+    elif rawEvent.type == SSE.CONTINUE:
+        result = SysContinue(time)
+    elif rawEvent.type == SSE.STOP:
+        result = SysStop(time)
     else:
         result = UnknownEvent(time, rawEvent.type)
 
@@ -142,6 +155,9 @@ class Sequencer(object):
         if rc:
             raise Exception('Failed to open client, rc = %d' % rc)
 
+    def close(self):
+        ss.close(self.__seq)
+
     def __wrapWithPortInfo(self, portNum):
         rc, portInfo = ss.port_info_malloc()
         assert not rc
@@ -167,6 +183,14 @@ class Sequencer(object):
                                   SSP.TYPE_MIDI_GENERIC
                                   )
         )
+
+    def deletePort(self, port):
+        """Delete a port.
+
+        parms:
+            port: [PortInfo]
+        """
+        ss.delete_simple_port(self.__seq, port.addr.port)
 
     def _iterPorts(self):
         """Iterates over the client, port pairs.
