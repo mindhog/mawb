@@ -45,6 +45,7 @@ class Sequencer {
         Sequencer(int streams, int mode) {
             if (snd_seq_open(&seq, "default", streams, mode))
                 throw spug::Exception("Failed to open sequencer.");
+            snd_seq_set_client_name(seq, "mawb");
         }
 
         ~Sequencer() {
