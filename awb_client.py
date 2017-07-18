@@ -68,6 +68,8 @@ class AWBClient(object):
 
         self.threadPipeRd, self.threadPipeWr = os.pipe()
 
+        self.midiInputThread = None
+
         # Configure the deka-pedal.
         # Note: for some reason, this gives back an rc = -1 when run on the pi _after_
         # creating fluidsynth.
@@ -367,8 +369,9 @@ class AWBClient(object):
     def stop(self):
         self.comm.close()
         self.seq.close()
-        os.write(self.midiInputControl.write, 'end')
-        self.midiInputThread.join()
+        if self.midiInputThread:
+            os.write(self.midiInputControl.write, 'end')
+            self.midiInputThread.join()
         if self.pedal:
             os.write(self.threadPipeWr, 'end')
             self.pedalThread.join()
