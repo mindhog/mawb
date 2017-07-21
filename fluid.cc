@@ -9,6 +9,7 @@ using namespace std;
 
 FluidSynthDispatcher::FluidSynthDispatcher() {
     settings = new_fluid_settings();
+    fluid_settings_setnum(settings, "synth.gain", 2);
     synth = new_fluid_synth(settings);
     driver = new_fluid_audio_driver(settings, synth);
 }
