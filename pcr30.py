@@ -22,7 +22,8 @@ class DestPort(SubState):
         return self is other or \
                (issubclass(other.__class__, self.__class__) and
                 self.target == other.target and
-                self.port == other.port)
+                self.port == other.port and
+                self.channel == other.channel)
 
 class Port(object):
     """Bundles together the port and its sequencer.
