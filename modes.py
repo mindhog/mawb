@@ -193,7 +193,10 @@ class Routing(SubState):
             # connections that we want but don't currently exist should
             # remain).
             for route in routeMap.itervalues():
-                route.connect(self)
+                try:
+                    route.connect(self)
+                except Exception as ex:
+                    print 'error connecting %s: %s' % (route, ex)
 
 class StateVec(object):
     """A state vector.
