@@ -132,6 +132,10 @@ class PortInfo(object):
         return ss.port_info_get_name(self.rep)
 
     @property
+    def fullName(self):
+        return str(self)
+
+    @property
     def addr(self):
         return ss.port_info_get_addr(self.rep)
 
@@ -146,7 +150,7 @@ class PortInfo(object):
 class Sequencer(object):
     """An ALSA MIDI sequencer."""
 
-    def __init__(self, streams, mode):
+    def __init__(self, streams, mode, name = None):
         """
             streams: some combination of SND_SEQ_OPEN_OUTPUT and
                 SND_SEQ_OPEN_INPUT.
@@ -155,6 +159,8 @@ class Sequencer(object):
         rc, self.__seq = ss.open("default", streams, mode)
         if rc:
             raise Exception('Failed to open client, rc = %d' % rc)
+        if name:
+            ss.set_client_name(self.__seq, name)
 
     def close(self):
         ss.close(self.__seq)
@@ -325,8 +331,8 @@ class Sequencer(object):
         return None
 
 _sequencer = None
-def getSequencer():
+def getSequencer(name = None):
     global _sequencer
     if not _sequencer:
-        _sequencer = Sequencer(SS.OPEN_INPUT | SS.OPEN_OUTPUT, 0)
+        _sequencer = Sequencer(SS.OPEN_INPUT | SS.OPEN_OUTPUT, 0, name = name)
     return _sequencer
