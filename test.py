@@ -16,7 +16,7 @@ debug = False
 
 class Test(unittest.TestCase):
     def startDaemon(self):
-        awbdCommand = ['awbd']
+        awbdCommand = ['./awbd']
         if debug:
             awbdCommand.insert(0, 'gdb')
 
