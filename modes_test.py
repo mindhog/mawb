@@ -13,6 +13,15 @@ class FakeSequencer(object):
         def __str__(self):
             return self.name
 
+        def __repr__(self):
+            return 'Port(%s)' % self.name
+
+        def __eq__(self, other):
+            return self.name == other.name
+
+        def __cmp__(self, other):
+            return cmp(self.name, other.name)
+
     def __init__(self):
         self.events = []
 
@@ -30,6 +39,12 @@ class FakeSequencer(object):
 
     def connect(self, port1, port2):
         self.events.append('connect %s, %s' % (port1, port2))
+
+class FakeClient(object):
+
+    def __init__(self, seq):
+        self.seq = seq
+        self.collector = []
 
 class FakeJack(object):
 
@@ -61,57 +76,59 @@ class StateVecTest(TestCase):
 
     def testTransitions(self):
         seq = FakeSequencer()
-        state1 = StateVec(foo = MidiState(seq, seq.Port, 129, 10),
-                          bar = MidiState(seq, seq.Port, 129, 11),
-                          baz = MidiState(seq, seq.Port, 5, 10)    # Inert
+        client = FakeClient(seq)
+        state1 = StateVec(foo = MidiState('port1', 129, 10),
+                          bar = MidiState('port2', 129, 11),
+                          baz = MidiState('port3', 5, 10)    # Inert
                           )
-        state2 = StateVec(foo = MidiState(seq, seq.Port, 130, 12), # Changed
-                          bar = MidiState(seq, seq.Port, 129, 11), # Unchanged.
+        state2 = StateVec(foo = MidiState('port1', 130, 12), # Changed
+                          bar = MidiState('port2', 129, 11), # Unchanged.
                           )
 
-        state2.activate(state1)
+        state2.activate(client, state1)
 
         self.assertEqual(seq.events,
-                         [(ControlChange(0, 0, 0, 1), seq.Port),
-                          (ControlChange(0, 0, 32, 2), seq.Port),
-                          (ProgramChange(0, 0, 12), seq.Port),
+                         [(ControlChange(0, 0, 0, 1), seq.Port('port1')),
+                          (ControlChange(0, 0, 32, 2), seq.Port('port1')),
+                          (ProgramChange(0, 0, 12), seq.Port('port1')),
                           ]
                          )
 
     def testInertStateActivation(self):
         seq = FakeSequencer()
+        client = FakeClient(seq)
         state1 = StateVec()
-        state2 = StateVec(foo = MidiState(seq, seq.Port, 10, 20))
-        state2.activate(state1)
+        state2 = StateVec(foo = MidiState('port1', 10, 20))
+        state2.activate(client, state1)
         self.assertEqual(seq.events,
-                         [(ControlChange(0, 0, 0, 0), seq.Port),
-                          (ControlChange(0, 0, 32, 10), seq.Port),
-                          (ProgramChange(0, 0, 20), seq.Port),
+                         [(ControlChange(0, 0, 0, 0), seq.Port('port1')),
+                          (ControlChange(0, 0, 32, 10), seq.Port('port1')),
+                          (ProgramChange(0, 0, 20), seq.Port('port1')),
                           ]
                          )
 
 class FakeRoute(RouteImpl):
 
-    def getCurrentOutbounds(self, context):
+    def getCurrentOutbounds(self, client):
         return ['foo', 'bar']
 
-    def disconnect(self, context, destKey):
-        context.collector.append('disconnect %s, %s' % (self.src, destKey))
+    def disconnect(self, client, destKey):
+        client.collector.append('disconnect %s, %s' % (self.src, destKey))
 
-    def connect(self, context):
-        context.collector.append('connect %s, %s' % (self.src, self.dst))
+    def connect(self, client):
+        client.collector.append('connect %s, %s' % (self.src, self.dst))
 
 class RoutingTest(TestCase):
 
     def testRouting(self):
-        routing = Routing(None, None,
-                          FakeRoute('a', 'b'),
+        client = FakeClient(None)
+        routing = Routing(FakeRoute('a', 'b'),
                           FakeRoute('c', 'd'),
                           FakeRoute('c', 'bar')
                           )
         routing.collector = []
-        routing.activate()
-        self.assertEqual(routing.collector,
+        routing.activate(client)
+        self.assertEqual(client.collector,
                          ['disconnect a, foo', 'disconnect a, bar',
                           'connect a, b', 'disconnect c, foo', 'connect c, d'
                           ]
@@ -131,37 +148,36 @@ class RoutingTest(TestCase):
         self.assertNotEqual(route, namedtuple('Foo', 'src dst')('a', 'b'))
 
     def testMidiRoutes(self):
+        seq = FakeSequencer()
+        client = FakeClient(seq)
         route = MidiRoute('a', 'b')
-        self.assertEqual(route.getCurrentOutbounds(
-                             Routing(None, FakeSequencer())
-                         ),
+        self.assertEqual(route.getCurrentOutbounds(client),
                          ['1', '2', '3']
                          )
 
-        seq = FakeSequencer()
-        route.disconnect(Routing(None, seq), 'x')
+        route.disconnect(client, 'x')
         self.assertEqual(seq.events, ['disconnect a, x'])
+        seq.events = []
 
-        seq = FakeSequencer()
-        route.connect(Routing(None, seq))
+        route.connect(client)
         self.assertEqual(seq.events, ['connect a, b'])
 
     def testJackRoutes(self):
+        client = FakeClient(FakeSequencer())
+        client.jack = FakeJack()
         route = JackRoute('a', 'b')
-        self.assertEqual(route.getCurrentOutbounds(
-                            Routing(FakeJack(), None)
-                         ),
+        self.assertEqual(route.getCurrentOutbounds(client),
                          ['x', 'y']
                          )
         self.assertEqual(route.getSourceKey(), 'a')
 
-        jack = FakeJack()
-        route.disconnect(Routing(jack, None), 'x')
-        self.assertEqual(jack.events, ['disconnect a, x'])
+        client.jack = FakeJack()
+        route.disconnect(client, 'x')
+        self.assertEqual(client.jack.events, ['disconnect a, x'])
 
-        jack = FakeJack()
-        route.connect(Routing(jack, None))
-        self.assertEqual(jack.events, ['connect a, b'])
+        client.jack = FakeJack()
+        route.connect(client)
+        self.assertEqual(client.jack.events, ['connect a, b'])
 
 if __name__ == '__main__':
     main()

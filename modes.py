@@ -17,41 +17,45 @@ class SubState(object):
         return not self == other
 
     @abstractmethod
-    def activate(self):
+    def activate(self, client):
+        """Interface to activate a substate.
+
+        parms:
+            client: [awb_client.Client]
+        """
         raise NotImplementedError()
 
 class MidiState(SubState):
 
-    def __init__(self, seq, port, bank, program):
-        self.seq = seq
-        self.port = port
+    def __init__(self, portName, bank, program):
+        self.portName = portName
         self.bank = bank
         self.program = program
 
     def __eq__(self, other):
         return self is other or \
+                self.portName == other.portName and \
                 self.bank == other.bank and \
                 self.program == other.program
 
-    def activate(self):
-        self.seq.sendEvent(ControlChange(0, 0, 0, self.bank >> 7), self.port)
-        self.seq.sendEvent(ControlChange(0, 0, 32, self.bank & 127), self.port)
-        self.seq.sendEvent(ProgramChange(0, 0, self.program), self.port)
+    def activate(self, client):
+        port = client.seq.getPort(self.portName)
+        client.seq.sendEvent(ControlChange(0, 0, 0, self.bank >> 7), port)
+        client.seq.sendEvent(ControlChange(0, 0, 32, self.bank & 127), port)
+        client.seq.sendEvent(ProgramChange(0, 0, self.program), port)
 
 class Route(object):
     __metaclass__ = ABCMeta
 
     @abstractmethod
-    def getCurrentOutbounds(self, context):
+    def getCurrentOutbounds(self, client):
         """Returns the list of all outbound connections from the source port
         as a list of keys.
 
         Keys should be compatible with the values returned from getDestKey().
 
-        Args:
-            context: [Routing] The routing object, which should contain
-                everything that the Route object needs to examine and modify
-                system state.
+        parms:
+            client: [awb_client.Client]
         """
 
     @abstractmethod
@@ -63,22 +67,22 @@ class Route(object):
         """Returns the destination key for a given connection."""
 
     @abstractmethod
-    def disconnect(self, context, destKey):
+    def disconnect(self, client, destKey):
         """Remove the system connection from the source port to the
         destination key.
 
         Args:
-            context: [Routing] See getCurrentOutbounds.
+            client: [awb_client.Client] See getCurrentOutbounds.
             destKey: [object] A key compatible with that returned from
                 getDestKey().
         """
 
     @abstractmethod
-    def connect(self, context):
+    def connect(self, client):
         """Connect the route.
 
         Args:
-            context: [Routing] See getCurrentOutbounds.
+            client: [awb_client.Client] See getCurrentOutbounds.
         """
 
     @abstractmethod
@@ -112,32 +116,32 @@ class RouteImpl(Route):
 
 class MidiRoute(RouteImpl):
 
-    def getCurrentOutbounds(self, context):
-        port = context.seq.getPort(self.src)
-        return [str(sub) for sub in context.seq.iterSubs(port)]
+    def getCurrentOutbounds(self, client):
+        port = client.seq.getPort(self.src)
+        return [str(sub) for sub in client.seq.iterSubs(port)]
 
-    def disconnect(self, context, destKey):
-        context.seq.disconnect(context.seq.getPort(self.src),
-                               context.seq.getPort(destKey)
-                               )
+    def disconnect(self, client, destKey):
+        client.seq.disconnect(client.seq.getPort(self.src),
+                              client.seq.getPort(destKey)
+                              )
 
-    def connect(self, context):
-        context.seq.connect(context.seq.getPort(self.src),
-                            context.seq.getPort(self.dst)
-                            )
+    def connect(self, client):
+        client.seq.connect(client.seq.getPort(self.src),
+                           client.seq.getPort(self.dst)
+                           )
 
 class JackRoute(RouteImpl):
 
-    def getCurrentOutbounds(self, context):
+    def getCurrentOutbounds(self, client):
         return [
-            port.name for port in context.jack.get_all_connections(self.src)
+            port.name for port in client.jack.get_all_connections(self.src)
         ]
 
-    def disconnect(self, context, destKey):
-        context.jack.disconnect(self.src, destKey)
+    def disconnect(self, client, destKey):
+        client.jack.disconnect(self.src, destKey)
 
-    def connect(self, context):
-        context.jack.connect(self.src, self.dst)
+    def connect(self, client):
+        client.jack.connect(self.src, self.dst)
 
 class Routing(SubState):
     """A set of jack audio or midi routes.
@@ -147,23 +151,19 @@ class Routing(SubState):
     destination ports.
     """
 
-    def __init__(self, jackClient, seq, *routes):
+    def __init__(self, *routes):
         """Constructor.
 
         args:
-            jackClient: the Jack client object.
-            seq: [amidi.Sequencer]
             *routes: [list(Route)] A list of routes.
         """
-        self.jack = jackClient
-        self.seq = seq
         self.routes = routes
 
     def __eq__(self, other):
         return self is other or \
             self.routes == other.routes
 
-    def activate(self):
+    def activate(self, client):
 
         # Mapping of all routes for a given port.  The keys can be whatever
         # works for a route type, as returned by getSourceKey()
@@ -187,14 +187,14 @@ class Routing(SubState):
                     del routeMap[dest]
                 except KeyError:
                     # We don't want to preserve this connection.  Remove it.
-                    routes[0].disconnect(self, dest)
+                    routes[0].disconnect(client, dest)
 
             # connect everything remaining in the routeMap (only the
             # connections that we want but don't currently exist should
             # remain).
             for route in routeMap.itervalues():
                 try:
-                    route.connect(self)
+                    route.connect(client)
                 except Exception as ex:
                     print 'error connecting %s: %s' % (route, ex)
 
@@ -222,12 +222,14 @@ class StateVec(object):
     def __hasattr__(self, name):
         return self.__dict.has_key(name)
 
-    def activate(self, curState):
+    def activate(self, client, curState):
         """Activate the reciver.
 
         Args:
+            client: (awb_client.Client) The awb client, which gets passed to
+                all substates to be activated.
             curState: (SubState or None) the existing state.
         """
         for name, val in self.__dict.iteritems():
             if not hasattr(curState, name) or getattr(curState, name) != val:
-                val.activate()
+                val.activate(client)

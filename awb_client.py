@@ -40,7 +40,7 @@ class AWBClient(object):
     def __init__(self, recordEnabled = False, paused = True):
         self.jack = jack.Client('MAWBSession')
         self.comm = Comm()
-        self.seq = amidi.getSequencer()
+        self.seq = amidi.getSequencer(name = 'MAWB')
         self.recordEnabled = recordEnabled
         self.paused = paused
         self.recording = {}
@@ -132,7 +132,7 @@ class AWBClient(object):
             time.sleep(0.1)
         raise Exception('timed out waiting for %s' % portName)
 
-    def waitForMidi(self, portName, timeout=3.0):
+    def waitForMidi(self, portName, timeout=5.0):
         """Wait for a midi port to become available.
 
         This is used as a way to wait for an external program that we're
@@ -147,7 +147,7 @@ class AWBClient(object):
         endTime = time.time() + timeout
         while time.time() < endTime:
             for port in self.seq.iterPortInfos():
-                if port.name == portName:
+                if port.fullName == portName:
                     return
                 time.sleep(0.1)
         raise Exception('timed out waiting for %s' % portName)
@@ -273,7 +273,7 @@ class AWBClient(object):
         Args:
             channel: [int] The channel index.
         """
-        self.voices[channel].activate(self.state)
+        self.voices[channel].activate(self, self.state)
         self.state = self.voices[channel]
 
         # Change status, deactivate currently active channel and activate new
@@ -362,9 +362,10 @@ class AWBClient(object):
             if self.midiInputControl.read in rdx:
                 break
 
-            event = self.seq.getEvent()
-            if self.dispatchEvent:
-                self.dispatchEvent(event)
+            while self.seq.hasEvent():
+                event = self.seq.getEvent()
+                if self.dispatchEvent:
+                    self.dispatchEvent(event)
 
     def stop(self):
         self.comm.close()
