@@ -32,8 +32,8 @@ class AWBClient(object):
         voices: [list<modes.StateVec>] The state vector map, should be one
             per channel.
         state: [modes.StateVec] The current state vector.
-        dispatchEvent: [callable<midi.Event>] A user function to manage event
-            processing.
+        dispatchEvent: [callable<AWBClient, midi.Event>] A user function to
+            manage event processing.
         midiIn: [amidi.Port] the midi input port
     """
 
@@ -365,7 +365,7 @@ class AWBClient(object):
             while self.seq.hasEvent():
                 event = self.seq.getEvent()
                 if self.dispatchEvent:
-                    self.dispatchEvent(event)
+                    self.dispatchEvent(self, event)
 
     def stop(self):
         self.comm.close()
