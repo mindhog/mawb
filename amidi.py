@@ -70,14 +70,10 @@ def makeEvent(rawEvent, time = 0):
     else:
         result = UnknownEvent(time, rawEvent.type)
 
-    result._amidi_raw = rawEvent
     return result
 
 def makeRawEvent(event):
     """Returns a new raw event for the high-level midi event."""
-    raw = getattr(event, '_amidi_raw', None)
-    if raw:
-        return raw
 
     raw = ss.event_t_new()
     ss.ev_set_fixed(raw)
