@@ -8,12 +8,12 @@ class PassThrough(object):
     def __init__(self, dest):
         """
         parms:
-            dest: [Port] destination port.
+            dest: [str] destination port name.
         """
         self.dest = dest
 
-    def __call__(self, event):
-        self.dest.sendEvent(event)
+    def __call__(self, client, event):
+        client.seq.sendEvent(event, client.seq.getPort(self.dest))
 
 class ChannelFilter(object):
     """A pass-through handler that changes the midi channel.
@@ -21,16 +21,17 @@ class ChannelFilter(object):
     def __init__(self, dest, channel):
         """
         parms:
-            dest: [Port] destination port.
+            dest: [str] destination port name.
             channel: [int] the channel to add to all ChannelEvents.
         """
         self.dest = dest
         self.channel = channel
 
-    def __call__(self, event):
+    def __call__(self, client, event):
         if isinstance(event, midi.ChannelEvent):
+            print 'changing channel to %d' % self.channel
             event.channel = self.channel
-        self.dest.sendEvent(event)
+        client.seq.sendEvent(event, client.seq.getPort(self.dest))
 
 class ProgramChangeControl(object):
     """A ControlChange handler that activates a program change."""
@@ -53,7 +54,7 @@ class ProgramChangeControl(object):
         self.__programs = programs
         self.__midiState = midiState
 
-    def __call__(self, event):
+    def __call__(self, client, event):
         index = event.value * len(self.__programs) / 128
         self.__midiState.bank, self.__midiState.program = \
             self.__programs[index]
@@ -71,9 +72,9 @@ class Param(object):
         self.__node = node
         self.__param = param
 
-    def __call__(self, event):
+    def __call__(self, client, event):
         setattr(self.__node, self.__param, event.value)
-        self.__node.activate()
+        self.__node.activate(client)
 
 class ControlMap(object):
     """Maps control events to control handlers.
@@ -84,8 +85,8 @@ class ControlMap(object):
     def __init__(self, nonControlHandler=None):
         """
         parms:
-            nonControlHandler: [callable(midi.Event)] Fall-through handler
-                called for non-control events.
+            nonControlHandler: [callable<AWBClient, midi.Event>] Fall-through
+                handler called for non-control events.
         """
         self.__map = {}
         self.nonControlHandler = nonControlHandler
@@ -95,17 +96,17 @@ class ControlMap(object):
 
         parms:
             controller: [int] Midi controller id.
-            handler: [callable(midi.ControlChange)] Handler to attach to the
-                control.
+            handler: [callable<AWBClient, midi.ControlChange>] Handler to
+                attach to the control.
         """
         self.__map[controller] = handler
 
-    def __call__(self, event):
+    def __call__(self, client, event):
         if isinstance(event, midi.ControlChange):
             handler = self.__map.get(event.controller)
             if handler:
-                handler(event)
+                handler(client, event)
                 return
 
         elif self.nonControlHandler:
-            self.nonControlHandler(event)
+            self.nonControlHandler(client, event)
