@@ -89,7 +89,7 @@ class Event:
       if self.__class__ is not other.__class__:
          return False
 
-      for attr, val in self.__dict__.iteritems():
+      for attr, val in self.__dict__.items():
          if getattr(other, attr, None) != val:
             return False
 
@@ -541,15 +541,15 @@ class TrackZipper(SeekableEventSource):
       # see if it is later than the last event
       if pos > self._events[-1].time:
          self.__index = len(self._events)
-         print 'pos is %d, index past the end (%d)' % \
-            (pos, self._events[-1].time)
+         print('pos is %d, index past the end (%d)' %
+               (pos, self._events[-1].time))
          return
       
       # look for it
       for i in range(len(self._events)):
          if pos <= self._events[i].time:
             self.__index = i
-            print 'setting index to %d' % i
+            print('setting index to %d' % i)
             break
       else:
          # should never get here
@@ -579,10 +579,10 @@ class TrackOverwriter(TrackZipper):
       # store the index of the event that turned them on.
       if isinstance(event, NoteOn):
          self.__map[event.note] = (len(self._events), event.velocity)
-         print 'mapping note on: %d, %d' % (event.time, event.note)
+         print('mapping note on: %d, %d' % (event.time, event.note))
       elif isinstance(event, NoteOff):
          self.__map[event.note] = None
-         print 'mapping note off: %d, %d' % (event.time, event.note)
+         print('mapping note off: %d, %d' % (event.time, event.note))
    
    def _addEvent(self, event, track, tracks):
       if track is tracks[0]:
@@ -594,7 +594,7 @@ class TrackOverwriter(TrackZipper):
          for i in range(len(self.__map)):
             if self.__map[i] is not None:
                self._events.append(NoteOff(event.time, event.channel, i, 0))
-               print 'truncating %d' % i
+               print('truncating %d' % i)
                self.__map[i] = None
          
          # add the new event
@@ -605,7 +605,7 @@ class TrackOverwriter(TrackZipper):
          # turn off.
          
          endTime = track.getTrack()[-1].time
-         print 'end time %d' % endTime
+         print('end time %d' % endTime)
          firstTrack = tracks[0]
          while firstTrack.hasMoreEvents():
             e = firstTrack.peekNextEvent()
@@ -623,7 +623,7 @@ class TrackOverwriter(TrackZipper):
          # turn on all notes that are going to be turned off          
          for i in range(len(self.__map)):
             if self.__map[i] is not None:
-               print 'starting %d' % i
+               print('starting %d' % i)
                self._events.append(NoteOn(endTime, event.channel, i,
                                           self.__map[i][1]
                                           )
@@ -821,7 +821,7 @@ class StreamReader:
          oldEvt = evt
          evt = self.__eventFilter(evt)
          if not evt:
-            print 'event filtered:', oldEvt
+            print('event filtered:', oldEvt)
          
       if evt:
          self._inputEvents.append(evt)
@@ -924,11 +924,11 @@ class Sequencer(EventSource, StreamReader):
       # if we terminated with an event from the controller, reset the
       # sequencer
       if control in selected[0]:
-         print 'resetting'
+         print('resetting')
          self.__reset()
          return 0
       else:
-         print selected
+         print(selected)
          return 1
 
    def playAndRecord(self, eventSource, control):
@@ -946,8 +946,8 @@ class Sequencer(EventSource, StreamReader):
          self.__queueEvent()
 
       if _printEvents:
-         print '%02x %02x %02x %02x' % \
-            struct.unpack('BBBB', self.__outputQueue[0])
+         print('%02x %02x %02x %02x' %
+               struct.unpack('BBBB', self.__outputQueue[0]))
       
       os.write(self.__src, self.__outputQueue[0])
       del self.__outputQueue[0]
@@ -1003,7 +1003,8 @@ class Sequencer(EventSource, StreamReader):
       else:
          self.__sync()
          
-      print 'events written: %d has more: %d' % (eventsWritten, eventSource.hasMoreEvents())
+      print('events written: %d has more: %d' % (eventsWritten, 
+                                                 eventSource.hasMoreEvents()))
    
    def __recordOnly(self, control):
       """
@@ -1071,8 +1072,8 @@ class Sequencer(EventSource, StreamReader):
       select([self.__src], [], [])
       data = os.read(self.__src, 4)
       if _printEvents:
-         print '%02x %02x %02x %02x' % \
-            struct.unpack('BBBB', data)
+         print('%02x %02x %02x %02x' %
+               struct.unpack('BBBB', data))
 
    def __syncOrSwim(self, control):
       # like the sync, but uses a control stream also, doing a reset if
@@ -1086,8 +1087,8 @@ class Sequencer(EventSource, StreamReader):
       else:
          data = os.read(self.__src, 4)
          if _printEvents:
-            print '%02x %02x %02x %02x' % \
-               struct.unpack('BBBB', data)
+            print('%02x %02x %02x %02x' %
+                  struct.unpack('BBBB', data))
 
    def __resetTime(self, time = 0):
       self.__timeOffset = time
@@ -1101,7 +1102,8 @@ class Sequencer(EventSource, StreamReader):
    def showTimeBase(self):
       timebase = struct.pack('i', 200)
       data = fcntl.ioctl(self.__src, SNDCTL_SEQ_CTRLRATE, timebase)
-      print 'timebase:', struct.unpack('i', timebase), struct.unpack('i', data)
+      print('timebase:', struct.unpack('i', timebase), struct.unpack('i', 
+                                       data))
 
 programs = [
     'Acoustic Grand Piano',

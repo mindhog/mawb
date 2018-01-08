@@ -1,5 +1,5 @@
 
-from Tkinter import Button, Frame, Label, Tk, LEFT, RAISED
+from tkinter import Button, Frame, Label, Tk, LEFT, RAISED
 from awb_client import ACTIVE, NONEMPTY, RECORD, STICKY
 
 class Channel(Frame):
@@ -49,10 +49,10 @@ class Channel(Frame):
         self.record = status & RECORD
         self.sticky = status & STICKY
         self.active = status & ACTIVE
-        print 'changing status of %d, nonempty = %s, record = %s, ' \
-            'sticky = %s, active = %s' % (self.channel, self.nonEmpty,
-                                          self.record, self.sticky,
-                                          self.active)
+        print('changing status of %d, nonempty = %s, record = %s, '
+              'sticky = %s, active = %s' % (self.channel, self.nonEmpty,
+                                            self.record, self.sticky,
+                                            self.active))
         self.__updateStatus()
 
 class MainWin(Tk):
@@ -104,7 +104,7 @@ class MainWin(Tk):
             )
 
     def foo(self, event):
-        print 'got foo'
+        print('got foo')
 
     def terminate(self, event):
         self.destroy()

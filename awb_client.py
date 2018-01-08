@@ -97,7 +97,7 @@ class AWBClient(object):
         if isinstance(src, amidi.PortInfo): return src
         srcPort = self.seq.getPort(src)
         if not srcPort:
-            print 'Port %s not defined' % src
+            print('Port %s not defined' % src)
         return srcPort
 
     def midiConnect(self, src, dst):
@@ -168,8 +168,8 @@ class AWBClient(object):
         try:
             self.jack.connect(src, dst)
         except jack.JackError as ex:
-            if 'already exists' in ex[0]:
-                print 'connection already exists'
+            if 'already exists' in ex.args[0]:
+                print('connection already exists')
             else:
                 raise
 
@@ -278,19 +278,19 @@ class AWBClient(object):
 
         # Change status, deactivate currently active channel and activate new
         # one.
-        for ch, stat in self.__channels.iteritems():
+        for ch, stat in self.__channels.items():
             if stat & ACTIVE:
                 self.__setStatus(ch, active = False)
         self.__setStatus(channel, active = True)
 
     def nextOrNewSection(self):
         if self.sectionIndex == self.sectionCount - 1:
-            print 'sending new section request'
+            print('sending new section request')
             self.sectionCount += 1
             self.sectionIndex += 1
             self.comm.sendRPC(new_section = mawb_pb2.NewSectionRequest())
             return
-        print 'changing section index'
+        print('changing section index')
         req = mawb_pb2.ChangeSectionRequest()
         req.sectionIndex = 1
 
@@ -298,7 +298,7 @@ class AWBClient(object):
         self.sectionIndex += 1
 
     def prevSection(self):
-        print 'setting to previous section'
+        print('setting to previous section')
         req = mawb_pb2.ChangeSectionRequest()
         req.sectionIndex = -1
         self.comm.sendRPC(change_section = req)
@@ -371,7 +371,7 @@ class AWBClient(object):
         self.comm.close()
         self.seq.close()
         if self.midiInputThread:
-            os.write(self.midiInputControl.write, 'end')
+            os.write(self.midiInputControl.write, b'end')
             self.midiInputThread.join()
         if self.pedal:
             os.write(self.threadPipeWr, 'end')

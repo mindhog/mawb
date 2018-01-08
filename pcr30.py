@@ -41,7 +41,7 @@ class Port(object):
                 event._amidi_raw = None
                 event.channel = self.channel
         else:
-            print 'xxx not a channel event'
+            print('xxx not a channel event')
         self.seq.sendEvent(event, self.dest)
 
 class PCR30(object):
