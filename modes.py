@@ -196,7 +196,7 @@ class Routing(SubState):
                 try:
                     route.connect(client)
                 except Exception as ex:
-                    print 'error connecting %s: %s' % (route, ex)
+                    print('error connecting %s: %s' % (route, ex))
 
 class StateVec(object):
     """A state vector.
@@ -230,6 +230,6 @@ class StateVec(object):
                 all substates to be activated.
             curState: (SubState or None) the existing state.
         """
-        for name, val in self.__dict.iteritems():
+        for name, val in self.__dict.items():
             if not hasattr(curState, name) or getattr(curState, name) != val:
                 val.activate(client)

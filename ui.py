@@ -180,7 +180,7 @@ class Commands:
             constructed from events for all of the channels.
         """
         track = midi.Track()
-        for channel, program in self.initializers.iteritems():
+        for channel, program in self.initializers.items():
             track.add(midi.ProgramChange(0, channel, program))
         return midifile.serializeTrack(track)
 

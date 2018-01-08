@@ -67,12 +67,12 @@ class BufferedDataHandler(DataHandler):
         try:
             callback = self.__messageCallbacks[resp.msg_id]
         except KeyError:
-            print 'Response received with unknown message id %s' % resp.msg_id
+            print('Response received with unknown message id %s' % resp.msg_id)
             return
         try:
             callback(resp)
         except:
-            print 'Exception in callback:'
+            print('Exception in callback:')
             traceback.print_exc()
 
     def __onControlEvent(self, event):
@@ -140,7 +140,7 @@ class Comm:
             self.handler.registerMessageCallback(msgId, callback)
             del kwargs['callback']
 
-        for attr, val in kwargs.iteritems():
+        for attr, val in kwargs.items():
             getattr(rpc, attr).CopyFrom(val)
 
         parcel = rpc.SerializeToString()
@@ -157,7 +157,7 @@ class DaemonManager:
 
     def start(self):
         if self.daemon:
-            print 'Daemon already started.'
+            print('Daemon already started.')
             return
         self.daemon = subprocess.Popen(self.awbdCmd)
         self.proxy = Comm()
@@ -171,7 +171,7 @@ class DaemonManager:
             self.daemon.wait()
             self.daemon = None
         else:
-            print 'Daemon not started.'
+            print('Daemon not started.')
 
     def __del__(self):
         if self.daemon:

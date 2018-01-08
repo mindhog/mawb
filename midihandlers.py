@@ -29,7 +29,7 @@ class ChannelFilter(object):
 
     def __call__(self, client, event):
         if isinstance(event, midi.ChannelEvent):
-            print 'changing channel to %d' % self.channel
+            print('changing channel to %d' % self.channel)
             event.channel = self.channel
         client.seq.sendEvent(event, client.seq.getPort(self.dest))
 

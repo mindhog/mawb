@@ -199,7 +199,7 @@ class Sequencer(object):
         """Returns a poll handle for the sequencer."""
         fds = alsa_midi.PollfdArray(1)
         assert ss.poll_descriptors(self.__seq, fds.cast(), 1, POLLIN) == 1
-        print 'XXX events is %s' % fds[0].events
+        print('XXX events is %s' % fds[0].events)
         return fds[0].fd
 
     def _iterPorts(self):
