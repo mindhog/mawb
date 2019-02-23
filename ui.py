@@ -36,7 +36,7 @@ class Command:
             Args:
                 name: [str] the function name
                 argDefs: [list<callable(any) -> any>] A list of functions that
-                    can appept anything as input and either raise an
+                    can accept anything as input and either raise an
                     exception or return the function converted to the
                     appropriate argument type.
                 func: [callable(Commands, *args)] Function to be called when
