@@ -28,6 +28,7 @@ class SubState(object):
 class MidiState(SubState):
 
     def __init__(self, portName, bank, program):
+        assert isinstance(portName, str)
         self.portName = portName
         self.bank = bank
         self.program = program
@@ -182,7 +183,7 @@ class Routing(SubState):
             # Go through the existing outbound connections, remove the ones
             # that aren't in the set of desired routes and remove the ones
             # that are from the set of routes that we need to connect.
-            for dest in routes[0].getCurrentOutbounds(self):
+            for dest in routes[0].getCurrentOutbounds(client):
                 try:
                     del routeMap[dest]
                 except KeyError:
