@@ -26,6 +26,12 @@ snd_seq_event_t *snd_seq_event_t_new(void) {
 
 typedef struct pollfd Pollfd;
 
+void snd_seq_event_t_set_ext(snd_seq_event_t *target, char *data, int size) {
+    target->data.ext.len = size;
+    target->data.ext.ptr = malloc(size);
+    memcpy(target->data.ext.ptr, data, size);
+}
+
 %}
 
 %array_class(Pollfd, PollfdArray);
@@ -71,7 +77,26 @@ typedef struct pollfd Pollfd;
 %include "/usr/include/alsa/seq.h"
 %include "/usr/include/alsa/seqmid.h"
 
+// This lets us pass a python string object to snd_seq_event_t_set_ext()'s
+// data and size arguments.
+%apply (char *STRING, int LENGTH) { (char *data, int size) };
+
+%newobject snd_seq_event_t_new;
 snd_seq_event_t *snd_seq_event_t_new();
+void snd_seq_event_t_set_ext(snd_seq_event_t *target, char *data, int size);
+
+%extend snd_seq_event {
+    ~snd_seq_event() {
+        if ($self->type == SND_SEQ_EVENT_SYSEX && $self->data.ext.ptr)
+            free($self->data.ext.ptr);
+    }
+}
+
+%extend snd_seq_ev_ext {
+    PyObject *__str__() {
+        return PyString_FromStringAndSize($self->ptr, $self->len);
+    }
+}
 
 // We have to reproduce this here, the definition probably isn't directly in
 // poll.h.
