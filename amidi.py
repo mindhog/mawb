@@ -160,14 +160,18 @@ class Sequencer(object):
     def close(self):
         ss.close(self.__seq)
 
-    def __wrapWithPortInfo(self, portNum):
+    def __wrapWithPortInfo(self, portNum, clientId = None):
         rc, portInfo = ss.port_info_malloc()
         assert not rc
         rc, clientInfo = ss.client_info_malloc()
         assert not rc
 
-        ss.get_port_info(self.__seq, portNum, portInfo)
-        ss.get_client_info(self.__seq, clientInfo)
+        if clientId is None:
+            ss.get_port_info(self.__seq, portNum, portInfo)
+            ss.get_client_info(self.__seq, clientInfo)
+        else:
+            ss.get_any_port_info(self.__seq, clientId, portNum, portInfo)
+            ss.get_any_client_info(self.__seq, clientId, clientInfo)
         return PortInfo(clientInfo, portInfo)
 
     def createInputPort(self, name):
@@ -291,8 +295,20 @@ class Sequencer(object):
         return ss.event_input_pending(self.__seq, 1)
 
     def getEvent(self, time = 0):
-        rc, event = ss.event_input(self.__seq)
-        return makeEvent(event, time)
+        """Waits for an event and returns it.\
+
+        Returns:
+            (Event) The event returned has two extra attributes, "source" and
+            "dest" which are not part of normal events.  These are PortInfo
+            objects for the source and destination ports.
+        """
+        rc, rawEvent = ss.event_input(self.__seq)
+        event = makeEvent(rawEvent, time)
+        event.source = self.__wrapWithPortInfo(rawEvent.source.port,
+                                               rawEvent.source.client)
+        event.dest = self.__wrapWithPortInfo(rawEvent.dest.port,
+                                             rawEvent.dest.client)
+        return event
 
     def sendEvent(self, event, port):
         """Send the event to subscribers of the given port.
