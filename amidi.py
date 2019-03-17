@@ -58,9 +58,7 @@ def makeEvent(rawEvent, time = 0):
                                eventData.control.value
                                )
     elif rawEvent.type == SSE.SYSEX:
-        # XXX need a translator to support sysex events as they have a pointer
-        # to external data.
-        result = SysEx(time, '')
+        result = SysEx(time, eventData.ext)
     elif rawEvent.type == SSE.START:
         result = SysStart(time)
     elif rawEvent.type == SSE.CONTINUE:
@@ -99,7 +97,8 @@ def makeRawEvent(event):
         raw.data.control.channel = event.channel
         raw.data.control.value = event.value
     elif isinstance(event, SysEx):
-        raise Exception("Can't send sysex events yet.")
+        raw.type = SSE.SYSEX
+        ss.event_t_set_ext(raw, event.data)
     else:
         raise Exception("Can't send unknown event type.")
 
@@ -206,7 +205,7 @@ class Sequencer(object):
         """Iterates over the client, port pairs.
 
         Note that this iterates over the low-level client and ports,
-        interPortInfos() should be used instead.
+        iterPortInfos() should be used instead.
         """
         rc, cinfo = ss.client_info_malloc()
         assert not rc
