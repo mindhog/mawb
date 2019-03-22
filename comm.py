@@ -19,8 +19,8 @@ class BufferedDataHandler(DataHandler):
     """
 
     def __init__(self):
-        self.__outputBuffer = ''
-        self._inputBuffer = ''
+        self.__outputBuffer = b''
+        self._inputBuffer = b''
         self.closeFlag = False
         self.control = getProactor().makeControlQueue(self.__onControlEvent)
         self.__messageCallbacks = {}
@@ -110,7 +110,7 @@ class BufferedDataHandler(DataHandler):
     def close(self):
         """Close the connection."""
         self.control.close()
-        self.control.add('')
+        self.control.add(b'')
         self.closeFlag = True
 
 class Comm:
