@@ -2,6 +2,7 @@
 import amidi
 import jack
 import mawb_pb2
+import modes
 import os
 import threading
 import select
@@ -85,6 +86,9 @@ class AWBClient(object):
         if self.pedal:
             self.pedalThread = threading.Thread(target = self.handlePedal)
             self.pedalThread.start()
+
+        # Callbacks.
+        self.onProgramChange = None
 
     def startMidiInputThread(self):
         # Start the midi input thread.
@@ -405,3 +409,10 @@ class AWBClient(object):
     def toggleChannelSticky(self, channel):
         """Toggle the channel sticky flag."""
         self.setChannelSticky(channel, not self.__channels[channel] & STICKY)
+
+    def makeNewProgram(self):
+        newProgram = self.state.clone() if self.state else modes.StateVec()
+        self.voices.append(newProgram)
+        self.state = newProgram
+        if self.onProgramChange:
+            self.onProgramChange()
