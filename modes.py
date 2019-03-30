@@ -4,6 +4,7 @@
 
 from abc import abstractmethod, ABCMeta
 from collections import defaultdict
+import copy
 from midi import ControlChange, ProgramChange
 
 class SubState(object):
@@ -215,13 +216,21 @@ class StateVec(object):
             self.__dict[name] = val
 
     def __getattr__(self, name):
+        if name == '_StateVec_dict':
+            raise AttributeError('_StateVec_dict')
         try:
             return self.__dict[name]
         except KeyError as ex:
-            raise AttributeError(ex[0])
+            raise AttributeError(str(ex))
 
     def __hasattr__(self, name):
         return self.__dict.has_key(name)
+
+    def __setstate__(self, dict):
+        self.__dict = dict['_StateVec__dict']
+
+    def clone(self):
+        return copy.deepcopy(self)
 
     def activate(self, client, curState):
         """Activate the reciver.
