@@ -94,7 +94,11 @@ void snd_seq_event_t_set_ext(snd_seq_event_t *target, char *data, int size);
 
 %extend snd_seq_ev_ext {
     PyObject *__str__() {
+#if PY_VERSION_HEX > 0x3000000
         return PyString_FromStringAndSize($self->ptr, $self->len);
+#else
+        return PyBytes_FromStringAndSize($self->ptr, $self->len);
+#endif
     }
 }
 
