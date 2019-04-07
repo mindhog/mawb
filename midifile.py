@@ -35,7 +35,7 @@
 
 from midi import SysEx, TrackCursor, StreamReader, Track, Piece
 import string, struct
-from StringIO import StringIO
+from io import StringIO
 
 class Writer:
    
@@ -57,7 +57,7 @@ class Writer:
          
       for i in range(len(data) - 1):
          data[i] = data[i] | 0x80
-      data = string.join(map(chr, data), '')
+      data = bytes(data)
       return data
    
    def encodeTrackName(self, name):
@@ -67,7 +67,7 @@ class Writer:
    def encodeEvents(self, track):
       status = 0
       lastTime = 0
-      buffer = ''
+      buffer = b''
       cur = TrackCursor(track)
       while cur.hasMoreEvents():
          evt = cur.nextEvent()
@@ -174,8 +174,8 @@ class Reader(StreamReader):
       elif cmd == 0x51:
          self.__tempo = struct.unpack('>I', '\0' + data)[0]
       
-      print 'got special command %02x of size %d with data %s' % \
-         (cmd, dataLen, data)
+      print('got special command %02x of size %d with data %s' % \
+         (cmd, dataLen, data))
       return cur
 
    def parseTrack(self, track, trackName = None):
