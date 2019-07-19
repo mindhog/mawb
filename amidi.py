@@ -95,6 +95,7 @@ def makeRawEvent(event):
     elif isinstance(event, ControlChange):
         raw.type = SSE.CONTROLLER
         raw.data.control.channel = event.channel
+        raw.data.control.param = event.controller
         raw.data.control.value = event.value
     elif isinstance(event, SysEx):
         raw.type = SSE.SYSEX
