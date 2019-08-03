@@ -1,11 +1,13 @@
 
 import abc
+from modes import MidiState
 from tkinter import Button, Entry, Frame, Label, Listbox, Menu, Menubutton, \
     Text, Tk, Toplevel, BOTH, LEFT, NORMAL, NSEW, RAISED, W
+from typing import Callable, List
 from awb_client import ACTIVE, NONEMPTY, RECORD, STICKY
 
 class Channel(Frame):
-    """
+    """These are the "classic channels", audio config and recording.
 
     Stuff a channel tracks:
     -   The track number
@@ -57,6 +59,289 @@ class Channel(Frame):
                                             self.active))
         self.__updateStatus()
 
+class SelectionClient(abc.ABC):
+    """Interface for a window that initiates a TextSelect popup.
+
+    Contains callbacks for when the popup completes.
+    """
+
+    @abc.abstractmethod
+    def selected(self, selection):
+        """Called when an item is selected."""
+
+    @abc.abstractmethod
+    def aborted(self):
+        """Called when the text selection is aborted (user has pressed
+        "Escape")
+        """
+
+class ProgramChanger(Frame, SelectionClient):
+    """Widget to specify a bank/program change event (a MidiState object)."""
+
+    def __init__(self, parent: 'Widget', client: 'AWBClient',
+                 model: MidiState,
+                 onCommit: Callable[[MidiState], None],
+                 **kwargs):
+        super(ProgramChanger, self).__init__(parent, **kwargs)
+
+        self.__parent = parent
+        self.__awb = client
+        self.__orgModel = model
+        self.__newModel = model.clone()
+        self.__onCommit = onCommit
+
+        lbl = Label(self, text = 'Port:')
+        lbl.grid(row = 0, column = 0)
+        self.__port = Button(self, text=model.portName,
+                             command=self.__selectPort
+                             )
+        self.__port.grid(row = 0, column = 1)
+
+        def validateInt(val):
+            if val == '':
+                # Allow empty string so that we can comfortably edit this
+                # field.
+                return True
+            try:
+                val = int(val)
+                return True
+            except ValueError:
+                return False
+
+        validateIntCB = self.register(validateInt)
+
+        lbl = Label(self, text='Bank:')
+        lbl.grid(row = 1, column = 0)
+        self.__bank = Entry(self, validate='key',
+                            validatecommand=(validateIntCB, '%P')
+                            )
+        self.__bank.insert(0, str(model.bank))
+        self.__bank.grid(row = 1, column = 1)
+        lbl = Label(self, text='Program:')
+        lbl.grid(row = 2, column = 0)
+        self.__program = Entry(self, validate='key',
+                               validatecommand=(validateIntCB, '%P')
+                               )
+        self.__program.insert(0, str(model.program))
+        self.__program.grid(row=2, column=1)
+
+        btn = Button(self, text='-', command=self.__programDec)
+        btn.grid(row=2, column=2)
+        btn = Button(self, text='+', command=self.__programInc)
+        btn.grid(row=2, column=3)
+
+        btnRow = Frame(self)
+        btn = Button(btnRow, text='Save', command=self.__save)
+        btn.pack(side=LEFT)
+        btn = Button(btnRow, text='Cancel', command=self.__cancel)
+        btnRow.grid(row=3, column=0, columnspan=4)
+
+    def __save(self, *event):
+        self.__newModel.bank = self.__getIntValue(self.__bank)
+        self.__newModel.program = self.__getIntValue(self.__program)
+        self.__onCommit(self.__newModel)
+        # TODO: We destroy the parent, making the assumption that it is a
+        # toplevel, but this class was structured to be usable as an inline
+        # window.  We should probably let the parent decide how to destroy it.
+        self.__parent.destroy()
+
+    def __cancel(self, *event):
+        self.__parent.destroy()
+
+    def selected(self, selection):
+        self.__port.configure(text = selection)
+        self.__newModel.portName = selection
+
+    def aborted(self):
+        pass
+
+    def __selectPort(self, *event):
+        selector = TextSelect(self, self.__port, _getPorts(self.__awb))
+
+    @staticmethod
+    def __getIntValue(control: Entry):
+        result = control.get()
+        return 0 if result == '' else int(result)
+
+    def __getProgramValue(self):
+        return self.__getIntValue(self.__program)
+
+    def __getBankValue(self):
+        return self.__getIntValue(self.__bank)
+
+    def __fillNewModel(self):
+        self.__newModel.bank = self.__getBankValue()
+        self.__newModel.program = self.__getProgramValue()
+
+    def __setProgramValue(self, val: int):
+        self.__program.delete(0, 'end')
+        self.__program.insert(0, str(val))
+
+    def __changeProgram(self):
+        """Change the program of the port's midi device to the current program.
+        """
+        self.__fillNewModel()
+        if self.__newModel.portName != 'port':
+            self.__newModel.activate(self.__awb)
+
+    def __programDec(self):
+        val = self.__getProgramValue() - 1
+        if val == -1:
+            val = 127
+        self.__setProgramValue(val)
+        self.__changeProgram()
+
+    def __programInc(self):
+        val = self.__getProgramValue() + 1
+        if val == 128:
+            val = 0
+        self.__setProgramValue(val)
+        self.__changeProgram()
+
+class ConfigPresetEditor(Toplevel):
+
+    # TODO: follow the mutation pattern used by ProgramChanger: pass in the
+    # original object and a commit method.
+    def __init__(self, client: 'AWBClient', preset: 'StateVec'):
+        super(ConfigPresetEditor, self).__init__()
+
+        self.__preset = preset
+
+        self.__list = Listbox(self)
+        self.__list.grid(columnspan=2)
+        for attr in dir(self.__preset):
+            if attr.startswith('prog:'):
+                self.__list.insert('end', attr)
+
+        buttonPnl = Frame(self)
+        button = Button(buttonPnl, text='New Program',
+                        command=self.__newProgram
+                        )
+        button.pack(side=LEFT)
+        button = Button(buttonPnl, text = 'Edit', command=self.__edit)
+        button.pack(side=LEFT)
+        button = Button(buttonPnl, text='Delete', command=self.__delete)
+        button.pack(side=LEFT)
+        buttonPnl.grid(columnspan = 2)
+        self.__awb = client
+
+    def __newProgram(self):
+        def addProgram(state: MidiState):
+            # store the preset. TODO: add channel to the name.
+            name = 'prog:%s' % state.portName
+            setattr(self.__preset, name, state)
+            self.__list.insert('end', name)
+            print(dir(self.__preset))
+        c = ProgramChanger(Toplevel(), self.__awb, MidiState('port', 0, 0),
+                           addProgram
+                           )
+        c.grid(sticky=NSEW)
+
+    def __edit(self):
+        selIndex = self.__list.curselection()
+        if len(selIndex) != 1:
+            # TODO: show error
+            return
+        selIndex = selIndex[0]
+        oldName = self.__list.get(selIndex)
+
+        def updateProgram(state: MidiState):
+            self.__list.delete(selIndex)
+            name = 'prog:%s' % state.portName
+            delattr(self.__preset, oldName)
+            setattr(self.__preset, name, state)
+            self.__list.insert(selIndex, name)
+        c = ProgramChanger(Toplevel(), self.__awb,
+                           getattr(self.__preset, oldName),
+                           updateProgram
+                           )
+        c.grid(sticky=NSEW)
+
+    def __delete(self):
+        selIndex = self.__list.curselection()
+        if len(selIndex) != 1:
+            # TODO: show error
+            return
+        selIndex = selIndex[0]
+
+        name = self.__list.get(selIndex)
+        self.__list.delete(selIndex)
+        del self.__items[selIndex]
+        delattr(self.__preset, name)
+
+class ConfigPreset(Button):
+    """The button that selects a config preset.
+
+    Can also be right-clicked to edit the configuration.
+    """
+
+    def __init__(self, parent: 'Widget', client: 'AWBClient', text: str,
+                 index: int,
+                 **kwargs
+                 ):
+        """
+        Args:
+            text: Name to display on the button.
+            index: index of the config preset button in the ConfigPresetRow.
+        """
+        super(ConfigPreset, self).__init__(parent, text=text)
+        self.bind('<Button-3>', self.__menu)
+        self.__awb = client
+        self.__index = index
+
+        # Create a pop-up menu.
+        self.__popup = Menu(self, tearoff = False)
+        self.__popup.add_command(label = 'Configure',
+                                 command = self.__configure
+                                 )
+
+    def activate(self, active: bool):
+        """Activate/deactivate the button based on the value of 'active'."""
+        if active:
+            self.configure(background = 'DarkRed')
+        else:
+            self.configure(background = 'DarkGray')
+
+    def __menu(self, event):
+        self.__popup.tk_popup(event.x_root, event.y_root, 0)
+
+    def __configure(self):
+        """Starts the configuration window."""
+        config = ConfigPresetEditor(self.__awb, self.__awb.voices[self.__index])
+
+class ConfigPresetRow(Frame):
+    """A row of config preset buttons."""
+
+    def __init__(self, parent: 'Widget', client: 'AWBClient', count: int,
+                 **kwargs
+                 ):
+        super(ConfigPresetRow, self).__init__(**kwargs)
+        assert count > 0 # We assume __current is valid below.
+        self.__buttons = []
+        self.__current = 0
+        self.__client = client
+        for i in range(count):
+            button = ConfigPreset(self, client, str(i), i)
+            button.pack(side = LEFT)
+            self.__buttons.append(button)
+
+            # Button press callback.
+            def pressed(index=i, *args):
+                self.__activate(index)
+                self.__client.activate(index)
+
+            button.configure(command = pressed)
+            client.addChannelSubscriber(i, self.__statusCallback)
+
+    def __activate(self, index):
+        self.__buttons[self.__current].activate(False)
+        self.__current = index
+        self.__buttons[index].activate(True)
+
+    def __statusCallback(self, channel: int, modes: int):
+        if modes & ACTIVE:
+            self.__activate(channel)
+
 class Counter:
 
     def __init__(self):
@@ -71,8 +356,9 @@ class MainWin(Tk):
 
     def __init__(self, client):
         Tk.__init__(self)
+        self.title('MAWB')
         self.client = client
-        self.programPanel = ProgramPanel(client)
+        self.programPanel = ProgramPanel(self, client)
         self.programPanel.grid(row = 0, column = 0, sticky = NSEW)
 
         self.frame = Frame(self)
@@ -186,7 +472,12 @@ class MainWin(Tk):
     def prevSection(self, event):
         self.client.prevSection()
 
+    def add(self, widget: 'Widget'):
+        """Add a widget to the front panel of the window."""
+        widget.grid(columnspan = 2, sticky = NSEW)
+
 class ProgramWidget(Frame):
+    """Widget that displays the main application "program" (script) panel."""
 
     def __init__(self, parent, client):
         super(ProgramWidget, self).__init__(parent)
@@ -215,23 +506,6 @@ class ProgramWidget(Frame):
 
     def newProgram(self):
         self.client.makeNewProgram()
-
-class SelectionClient(abc.ABC):
-    """Interface for a window that initiates a TextSelect popup.
-
-    Contains callbacks for when the popup completes.
-    """
-
-    @abc.abstractmethod
-    def selected(self, selection):
-        """Called when an item is selected."""
-
-    @abc.abstractmethod
-    def aborted(self):
-        """Called when the text selection is aborted (user has pressed
-        "Escape")
-        """
-
 
 class TextSelect(Frame):
 
@@ -357,10 +631,16 @@ class TextSelect(Frame):
 
         return 'break'
 
+def _getPorts(client: 'AWBClient') -> List[str]:
+    result = []
+    for port in client.seq.iterPortInfos():
+        result.append(port.fullName)
+    return result
+
 class ProgramPanel(Frame):
     """Lets you configure the program."""
 
-    def __init__(self, client):
+    def __init__(self, parent, client):
         super(ProgramPanel, self).__init__()
         self.client = client
         self.text = Text(self)
@@ -383,23 +663,22 @@ class ProgramPanel(Frame):
         else:
             self.text.insert('insert', ' ' + word)
 
-    def __getPorts(self):
-        result = []
-        for port in self.client.seq.iterPortInfos():
-            result.append(port.fullName)
-        return result
-
     def showCompletions(self, event):
         selector = None
         anchor = None
         anchor = Frame(self.text)
         self.text.window_create('insert', window=anchor)
-        selector = TextSelect(self, anchor, self.__getPorts(),
+        selector = TextSelect(self, anchor, _getPorts(self.__client),
                               destroyAnchor = True)
         return 'break'
 
-def runTkUi(client):
+    def eval(self, event):
+        pass
+
+def runTkUi(client, configurator=None):
     mainwin = MainWin(client)
+    if configurator:
+        configurator(mainwin)
     mainwin.mainloop()
 
 if __name__ == '__main__':
