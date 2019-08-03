@@ -5,6 +5,9 @@ from tkinter import Button, Entry, Frame, Label, Listbox, Menu, Menubutton, \
     Text, Tk, Toplevel, BOTH, LEFT, NORMAL, NSEW, RAISED, W
 from typing import Callable, List
 from awb_client import ACTIVE, NONEMPTY, RECORD, STICKY
+from commands import ProgramCommands, ScriptInterpreter
+from modes import Program
+import traceback
 
 class Channel(Frame):
     """These are the "classic channels", audio config and recording.
@@ -352,6 +355,16 @@ class Counter:
         self.val += 1
         return result
 
+class EventMultiplexer:
+    """Sends an event to multiple handlers."""
+
+    def __init__(self, *handlers):
+        self.handlers = handlers
+
+    def __call__(self):
+        for handler in self.handlers:
+            handler()
+
 class MainWin(Tk):
 
     def __init__(self, client):
@@ -366,10 +379,14 @@ class MainWin(Tk):
         nextRow = Counter()
 
         # Create the menu.
-        menu = Frame(self.frame)
-        addButton = Menubutton(menu, text = 'Add')
+        menubar = Frame(self.frame)
+        addButton = Menubutton(menubar, text = 'File')
         addButton.pack()
-        menu.grid(row = nextRow(), column = 0, sticky = W)
+        menubar.grid(row = nextRow(), column = 0, sticky = W)
+        fileMenu = Menu(addButton, tearoff = False)
+        fileMenu.add_command(label='Save', command=self.__save)
+        fileMenu.add_command(label='Load', command=self.__load)
+        addButton['menu'] = fileMenu
 
         # Create the program panel.
         self.program = ProgramWidget(self.frame, client)
@@ -421,6 +438,18 @@ class MainWin(Tk):
                 lambda ch, status, channel = channel:
                     channel.changeStatus(status)
             )
+
+        client.onProgramChange = EventMultiplexer(
+            self.program.programChanged,
+            self.programPanel.programChanged
+        )
+
+    def __save(self, *args):
+        self.client.writeTo(open('noname.mawb', 'wb'))
+
+    def __load(self, *args):
+        # TODO: display a file selector.
+        self.client.readFrom(open('noname.mawb', 'rb'))
 
     def foo(self, event):
         print('got foo')
@@ -482,7 +511,6 @@ class ProgramWidget(Frame):
     def __init__(self, parent, client):
         super(ProgramWidget, self).__init__(parent)
         self.client = client
-        self.client.onProgramChange = self.programChanged
 
         self.programLabel = Label(self, text = 'Program:')
         self.programLabel.grid(row = 0, column = 0)
@@ -650,6 +678,12 @@ class ProgramPanel(Frame):
         self.text.bind('<Return>', self.eval)
         self.text.focus()
 
+        self.info = Label(self)
+        self.info.grid(row = 1, column = 0, sticky = NSEW)
+
+        # Do a programChanged to set the current program.
+        self.programChanged()
+
     def selected(self, item):
         self.__insertWord(item)
         self.text.focus()
@@ -663,6 +697,20 @@ class ProgramPanel(Frame):
         else:
             self.text.insert('insert', ' ' + word)
 
+    def programChanged(self):
+        """Handler for program change events."""
+        program = self.client.state
+        self.text.delete('1.0', 'end')
+        if isinstance(program, Program):
+            print('text is %r' % program.text)
+            self.text.insert('1.0', program.text)
+            print('setting interp')
+            self.interp = ScriptInterpreter(
+                ProgramCommands(self.client, program).dict,
+            )
+        else:
+            self.text.insert('1.0', '# uneditable program type\n')
+
     def showCompletions(self, event):
         selector = None
         anchor = None
@@ -673,12 +721,20 @@ class ProgramPanel(Frame):
         return 'break'
 
     def eval(self, event):
-        pass
+        contents = self.text.get('1.0', 'end') + '\n'
+        try:
+            self.interp.feed(contents)
+            self.client.state.activate(self.client, self.client.state)
+            self.setInfo('ok')
+        except Exception as ex:
+            traceback.print_exc()
+            self.setInfo(str(ex))
 
-def runTkUi(client, configurator=None):
+    def setInfo(self, infoText: str):
+        self.info.configure(text = infoText)
+
+def runTkUi(client):
     mainwin = MainWin(client)
-    if configurator:
-        configurator(mainwin)
     mainwin.mainloop()
 
 if __name__ == '__main__':

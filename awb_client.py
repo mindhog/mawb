@@ -4,7 +4,9 @@ import jack
 import mawb_pb2
 import modes
 import os
+import pickle
 import threading
+from typing import IO, List
 import select
 import time
 from comm import Comm
@@ -20,6 +22,15 @@ ACTIVE = 8
 class Pipe(object):
     def __init__(self,):
         self.read, self.write = os.pipe()
+
+class AWBClientState:
+    """Persisted AWB client state.
+
+    We create one of these for writing the client state.
+    """
+
+    def __init__(self, voices: List[modes.StateVec]):
+        self.voices = voices
 
 class AWBClient(object):
     """AWB Client hub.
@@ -411,8 +422,24 @@ class AWBClient(object):
         self.setChannelSticky(channel, not self.__channels[channel] & STICKY)
 
     def makeNewProgram(self):
-        newProgram = self.state.clone() if self.state else modes.StateVec()
+        newProgram = self.state.clone() if self.state else modes.Program()
         self.voices.append(newProgram)
         self.state = newProgram
         if self.onProgramChange:
             self.onProgramChange()
+
+    def makeProject(self):
+        self.state = modes.Program()
+        self.voices.append(self.state)
+        if self.onProgramChange:
+            self.onProgramChange()
+
+    def writeTo(self, out: IO[bytes]):
+        """Write the client state to the output stream."""
+        state = AWBClientState(self.voices)
+        pickle.dump(state, out)
+
+    def readFrom(self, src: IO[bytes]):
+        """Read the client state from the input stream."""
+        state = pickle.load(src)
+        self.voices = state.voices
