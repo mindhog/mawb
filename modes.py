@@ -40,6 +40,9 @@ class MidiState(SubState):
                 self.bank == other.bank and \
                 self.program == other.program
 
+    def clone(self):
+        return MidiState(self.portName, self.bank, self.program)
+
     def activate(self, client):
         port = client.seq.getPort(self.portName)
         client.seq.sendEvent(ControlChange(0, 0, 0, self.bank >> 7), port)
@@ -176,7 +179,7 @@ class Routing(SubState):
         # Go through the source ports, remove all existing connections that
         # aren't in the new connections and add all new connections that aren't
         # in the existing connections.
-        for routes in routesBySource.itervalues():
+        for routes in routesBySource.values():
 
             # Convert the routes to a map indexed by destination ports.
             routeMap = dict((route.getDestKey(), route) for route in routes)
@@ -194,7 +197,7 @@ class Routing(SubState):
             # connect everything remaining in the routeMap (only the
             # connections that we want but don't currently exist should
             # remain).
-            for route in routeMap.itervalues():
+            for route in routeMap.values():
                 try:
                     route.connect(client)
                 except Exception as ex:
@@ -215,6 +218,9 @@ class StateVec(object):
         else:
             self.__dict[name] = val
 
+    def __delattr__(self, name):
+        del self.__dict[name]
+
     def __getattr__(self, name):
         if name == '_StateVec_dict':
             raise AttributeError('_StateVec_dict')
@@ -222,6 +228,9 @@ class StateVec(object):
             return self.__dict[name]
         except KeyError as ex:
             raise AttributeError(str(ex))
+
+    def __dir__(self):
+        return self.__dict.keys()
 
     def __hasattr__(self, name):
         return self.__dict.has_key(name)
