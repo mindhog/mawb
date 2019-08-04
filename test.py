@@ -1,5 +1,5 @@
 
-from StringIO import StringIO
+from io import StringIO
 
 from mawb_pb2 import PBTrack, RPC, RECORD, IDLE, PLAY
 import socket
