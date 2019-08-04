@@ -5,8 +5,6 @@ from tkinter import Button, Entry, Frame, Label, Listbox, Menu, Menubutton, \
     Text, Tk, Toplevel, BOTH, LEFT, NORMAL, NSEW, RAISED, W
 from typing import Callable, List
 from awb_client import ACTIVE, NONEMPTY, RECORD, STICKY
-from commands import ProgramCommands, ScriptInterpreter
-from modes import Program
 import traceback
 
 class Channel(Frame):
@@ -371,8 +369,6 @@ class MainWin(Tk):
         Tk.__init__(self)
         self.title('MAWB')
         self.client = client
-        self.programPanel = ProgramPanel(self, client)
-        self.programPanel.grid(row = 0, column = 0, sticky = NSEW)
 
         self.frame = Frame(self)
         self.frame.grid(row = 0, column = 0, sticky = NSEW)
@@ -387,11 +383,6 @@ class MainWin(Tk):
         fileMenu.add_command(label='Save', command=self.__save)
         fileMenu.add_command(label='Load', command=self.__load)
         addButton['menu'] = fileMenu
-
-        # Create the program panel.
-        self.program = ProgramWidget(self.frame, client)
-        self.program.grid(row = nextRow(), column = 0, columnspan = 2,
-                          sticky = W)
 
         label = Label(self.frame, text = 'AWB')
         label.grid(row = nextRow(), column = 0)
@@ -418,8 +409,8 @@ class MainWin(Tk):
         self.bind('K', self.clearAllState)
         self.protocol('WM_DELETE_WINDOW', self.destroy)
 
+        # F1 key brings the main panel to the foreground
         self.bind('<F1>', lambda evt: self.frame.tkraise())
-        self.bind('<F2>', lambda evt: self.programPanel.tkraise())
 
         for i in range(0, 8):
 
@@ -438,11 +429,6 @@ class MainWin(Tk):
                 lambda ch, status, channel = channel:
                     channel.changeStatus(status)
             )
-
-        client.onProgramChange = EventMultiplexer(
-            self.program.programChanged,
-            self.programPanel.programChanged
-        )
 
     def __save(self, *args):
         self.client.writeTo(open('noname.mawb', 'wb'))
@@ -504,36 +490,6 @@ class MainWin(Tk):
     def add(self, widget: 'Widget'):
         """Add a widget to the front panel of the window."""
         widget.grid(columnspan = 2, sticky = NSEW)
-
-class ProgramWidget(Frame):
-    """Widget that displays the main application "program" (script) panel."""
-
-    def __init__(self, parent, client):
-        super(ProgramWidget, self).__init__(parent)
-        self.client = client
-
-        self.programLabel = Label(self, text = 'Program:')
-        self.programLabel.grid(row = 0, column = 0)
-        self.programEntry = Entry(self, text = 'Program name',
-                                  state = 'readonly')
-        self.programEntry.grid(row = 0, column = 1)
-        self.buttonPanel = Frame(self)
-        self.buttonPanel.grid(row = 1, column = 0, columnspan = 2, sticky = W)
-        self.newButton = Button(self.buttonPanel, text='New',
-                                command = self.newProgram)
-        self.newButton.pack(side = LEFT)
-
-    def programChanged(self):
-        self.__setProgramText(str(self.client.state))
-
-    def __setProgramText(self, text):
-        self.programEntry.configure(state = NORMAL)
-        self.programEntry.delete(0)
-        self.programEntry.insert(0, text)
-        self.programEntry.configure(state = 'readonly')
-
-    def newProgram(self):
-        self.client.makeNewProgram()
 
 class TextSelect(Frame):
 
@@ -664,74 +620,6 @@ def _getPorts(client: 'AWBClient') -> List[str]:
     for port in client.seq.iterPortInfos():
         result.append(port.fullName)
     return result
-
-class ProgramPanel(Frame):
-    """Lets you configure the program."""
-
-    def __init__(self, parent, client):
-        super(ProgramPanel, self).__init__()
-        self.client = client
-        self.text = Text(self)
-        self.text.grid(row = 0, column = 0, sticky = NSEW)
-
-        self.text.bind('<Tab>', self.showCompletions)
-        self.text.bind('<Return>', self.eval)
-        self.text.focus()
-
-        self.info = Label(self)
-        self.info.grid(row = 1, column = 0, sticky = NSEW)
-
-        # Do a programChanged to set the current program.
-        self.programChanged()
-
-    def selected(self, item):
-        self.__insertWord(item)
-        self.text.focus()
-
-    def aborted(self):
-        self.text.focus()
-
-    def __insertWord(self, word):
-        if ' ' in word:
-            self.text.insert('insert', ' "%s"' % word)
-        else:
-            self.text.insert('insert', ' ' + word)
-
-    def programChanged(self):
-        """Handler for program change events."""
-        program = self.client.state
-        self.text.delete('1.0', 'end')
-        if isinstance(program, Program):
-            print('text is %r' % program.text)
-            self.text.insert('1.0', program.text)
-            print('setting interp')
-            self.interp = ScriptInterpreter(
-                ProgramCommands(self.client, program).dict,
-            )
-        else:
-            self.text.insert('1.0', '# uneditable program type\n')
-
-    def showCompletions(self, event):
-        selector = None
-        anchor = None
-        anchor = Frame(self.text)
-        self.text.window_create('insert', window=anchor)
-        selector = TextSelect(self, anchor, _getPorts(self.__client),
-                              destroyAnchor = True)
-        return 'break'
-
-    def eval(self, event):
-        contents = self.text.get('1.0', 'end') + '\n'
-        try:
-            self.interp.feed(contents)
-            self.client.state.activate(self.client, self.client.state)
-            self.setInfo('ok')
-        except Exception as ex:
-            traceback.print_exc()
-            self.setInfo(str(ex))
-
-    def setInfo(self, infoText: str):
-        self.info.configure(text = infoText)
 
 def runTkUi(client):
     mainwin = MainWin(client)
