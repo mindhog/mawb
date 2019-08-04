@@ -7,4 +7,11 @@ setup(
                   )
     ],
     py_modules = ['alsa_midi'],
+    install_requires = [
+        'typing', # typing-3.6.6
+    ],
+
+    tests_require = [
+        'mock', # mock-2.0.0
+    ],
 )
