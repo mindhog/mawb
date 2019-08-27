@@ -1,12 +1,14 @@
 
+import abc
 import amidi
+from importlib import import_module
 import jack
 import mawb_pb2
 import modes
 import os
 import pickle
 import threading
-from typing import IO, List
+from typing import IO, List, Optional
 import select
 import time
 from comm import Comm
@@ -29,8 +31,34 @@ class AWBClientState:
     We create one of these for writing the client state.
     """
 
-    def __init__(self, voices: List[modes.StateVec]):
+    def __init__(self, voices: List[modes.StateVec], plugins: List['Plugin']):
         self.voices = voices
+        self.plugins = plugins
+
+class Plugin(abc.ABC):
+    """An AWB module.
+
+    Plugins are classes that implement this interface.  They are used to
+    extend the functionality of MAWB.  There are default versions of all of
+    the methods, all of which do nothing.
+    """
+
+    def init(self, client: 'AWBClient'):
+        """Called during initialization."""
+
+    def shutdown(self, client: 'AWBClient'):
+        """Called during shutdown."""
+
+    def getUI(self, client: 'AWBClient') -> Optional['tkinter.Widget']:
+        """Returns a user interface for configuring the plugin.
+
+        Returns None if the module has no configuration UI.
+        """
+        return None
+
+    @abc.abstractmethod
+    def __str__(self) -> str:
+        return None
 
 class AWBClient(object):
     """AWB Client hub.
@@ -43,6 +71,7 @@ class AWBClient(object):
         seq: [amidi.Sequencer] The sequencer.
         voices: [list<modes.StateVec>] The state vector map, should be one
             per channel.
+        plugins: [list<Plugin>] The list of active plugins for the client.
         state: [modes.StateVec] The current state vector.
         dispatchEvent: [callable<AWBClient, midi.Event>] A user function to
             manage event processing.
@@ -60,6 +89,7 @@ class AWBClient(object):
         self.sectionIndex = 0
         self.sectionCount = 1
         self.voices = []
+        self.plugins = []  # type: List[Plugin]
         self.state = None
         self.dispatchEvent = None
 
@@ -100,6 +130,22 @@ class AWBClient(object):
 
         # Callbacks.
         self.onProgramChange = None
+
+    def init(self):
+        """Initialize the current client.
+
+        This initializes all plugins and sets the current state.
+        """
+        # Initialize all of the plugins.
+        for plugin in self.plugins:
+            plugin.init(self);
+
+        self.state.activate()
+
+    def shutdown(self):
+        """Shutdown the current client (shuts down all plugins)."""
+        for plugin in self.plugins:
+            plugin.shutdown(self)
 
     def startMidiInputThread(self):
         # Start the midi input thread.
@@ -436,10 +482,35 @@ class AWBClient(object):
 
     def writeTo(self, out: IO[bytes]):
         """Write the client state to the output stream."""
-        state = AWBClientState(self.voices)
+        state = AWBClientState(self.voices, self.plugins)
         pickle.dump(state, out)
 
     def readFrom(self, src: IO[bytes]):
         """Read the client state from the input stream."""
         state = pickle.load(src)
         self.voices = state.voices
+        self.plugins = state.plugins
+        for plugin in self.plugins:
+            plugin.init(self)
+
+    def getPlugins(self) -> List[Plugin]:
+        """Returns the list of active, loaded plugins."""
+        return self.plugins
+
+    def listPlugins(self) -> List[str]:
+        """Returns a list of the names of all available plugins."""
+        # TODO: maybe search sys.path for the first (or all) of the plugins
+        # directories?
+        return [file[:-3] for file in os.listdir('plugins')
+                if file.endswith('.py')]
+
+    def loadPlugin(self, name: str):
+        mod = import_module('plugins.' + name)
+        pluginClass = getattr(mod, 'Plugin', None)
+        if pluginClass:
+            plugin = pluginClass()
+            plugin.init(self)
+            self.plugins.append(plugin)
+            return plugin
+        else:
+            raise Exception('No plugin class found in %s' % name)

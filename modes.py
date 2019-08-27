@@ -162,7 +162,7 @@ class Routing(SubState):
         args:
             *routes: [list(Route)] A list of routes.
         """
-        self.routes = routes
+        self.routes = list(routes)
 
     def __eq__(self, other):
         return self is other or \
