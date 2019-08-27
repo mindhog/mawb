@@ -10,8 +10,11 @@ check : event_test wavetree_test
 	event_test
 	wavetree_test
 
+clean :
+	rm -rf event_test wavetree_test mawb_pb2.py mawb.pb.* *.o .deps
+
 awbd : $(foreach f,$(SRCS),$f.o)
-	g++ $^ -lspug++ -lasound -lfluidsynth -lprotobuf -ljack -o awbd
+	g++ $^ -L/usr/local/lib -lspug++ -lasound -lfluidsynth -lprotobuf -ljack -o awbd
 
 jawbd : jackengine.o wavetree.o
 	g++ $^ -std=c++11 -ljack -o jawbd

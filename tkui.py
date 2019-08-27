@@ -382,6 +382,7 @@ class MainWin(Tk):
         fileMenu = Menu(addButton, tearoff = False)
         fileMenu.add_command(label='Save', command=self.__save)
         fileMenu.add_command(label='Load', command=self.__load)
+        fileMenu.add_command(label='Plugins', command=self.__plugins)
         addButton['menu'] = fileMenu
 
         label = Label(self.frame, text = 'AWB')
@@ -436,6 +437,11 @@ class MainWin(Tk):
     def __load(self, *args):
         # TODO: display a file selector.
         self.client.readFrom(open('noname.mawb', 'rb'))
+
+    def __plugins(self, *args):
+        top = Toplevel()
+        plugins = Plugins(top, self.client)
+        plugins.grid()
 
     def foo(self, event):
         print('got foo')
@@ -614,6 +620,63 @@ class TextSelect(Frame):
                 self.list.insert('end', item)
 
         return 'break'
+
+#class PluginFrame(Frame):
+#    """Wraps and manages a plugin config UI."""
+#
+#    def __init__(self,
+
+class Plugins(Frame):
+    """The plugins manager window.
+
+    Lets you add and remove plugins.
+    """
+
+    def __init__(self, parent: 'Widget', client: 'AWBClient', **kwargs):
+        super(Plugins, self).__init__(parent)
+
+        self.__client = client
+
+        # Listboxes of current and available plugins.
+        label = Label(self, text='Installed')
+        label.grid(row=0, column=0)
+        label = Label(self, text='Available')
+        label.grid(row=0, column=1)
+        self.__currentList = Listbox(self)
+        self.__currentList.grid(row=1, column=0, sticky=NSEW)
+        self.__availList = Listbox(self)
+        self.__availList.grid(row=1, column=1, sticky=NSEW)
+
+        buttons = Frame(self)
+        button = Button(buttons, text='Add', command=self.__add)
+        button.pack(side=LEFT)
+        button = Button(buttons, text='Delete')
+        button.pack(side=LEFT)
+        button = Button(buttons, text='Edit')
+        button.pack(side=LEFT)
+        buttons.grid(row=2, column=0, columnspan=2, sticky=W)
+
+        # Populate the list from the client.
+        for plugin in client.listPlugins():
+            self.__availList.insert('end', plugin)
+
+        # Populate the list of loaded plugins from the client.
+        for plugin in client.getPlugins():
+            self.__currentList.insert('end', str(plugin))
+
+    def __add(self, *args):
+        sel = self.__availList.curselection()
+        if len(sel) != 1:
+            return
+        plugin = self.__client.loadPlugin(self.__availList.get(sel[0]))
+        ui = plugin.getUI()
+        if ui:
+            # TODO: replace Toplevel with PluginFrame above.  When the frame
+            # is dismissed, we'll want to add the plugin to our list like
+            # below.
+            ui.create(Toplevel())
+        else:
+            self.__currentList.insert('end', str(plugin))
 
 def _getPorts(client: 'AWBClient') -> List[str]:
     result = []
