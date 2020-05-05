@@ -1,0 +1,35 @@
+
+If you want to install in a virtualenv, create one:
+
+    virtualenv venv -p /usr/bin/python3
+
+And activate it:
+
+    . venv/bin/activate
+
+You'll need:
+    -   Python3
+    -   Google Protobuf for python.
+        python3 -m pip install protobuf
+    -   Jack client: http://jackclient-python.readthedocs.io/en/0.4.3/#installation
+        python3 -m pip install JACK-client
+    -   Install spug libraries for python.
+    -   Alsa headers and libraries: (`apt-get install libasound2-dev` on
+        debian-derived systems)
+
+And for development:
+    -   pylint3:
+            sudo apt-get install -t jessie-backports pylint3
+
+        You need the jessie-backports version of this, debian latest has
+        failed dependencies.
+
+Then in this directory, build awbd:
+
+    make
+
+and build and install all of the python stuff:
+
+    python3 setup.py install
+
+
