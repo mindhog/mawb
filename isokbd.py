@@ -22,7 +22,8 @@ This maps keyboard keys to midi in ways corresponding to several isomorphic
 keyboard layouts.
 """
 
-from amidi import getSequencer
+import sys
+from amidi import getSequencer, PortInfo, Sequencer
 from midi import Event as MidiEvent, NoteOn, NoteOff
 from tkinter import BOTH, Event, EventType, Frame, Canvas, NSEW, Text, Tk, \
     Toplevel
@@ -54,18 +55,70 @@ def keychar(sym: str) -> str:
         'equal': '=',
     }.get(sym, sym)
 
-# Wicki-Hayden Layout
+def makeWickiHayden() -> Dict[str, int]:
+    """Returns a keyboard map modeled after Wicki-Haden keyboards."""
+    keys = {}
+    start = 30 # the "z" key, which we'll start at 30
+    for row in rows:
+        i = start
+        for key in row:
+            keys[key] = i
+            i += 2
 
-keys = {}
-start = 30 # the "z" key, which we'll start at G1
-for row in rows:
-    i = start
-    for key in row:
-        keys[key] = i
-        i += 2
+        # Next row starts at the 4th of the previous row (5 semitones)
+        start += 5
+    return keys
 
-    # Next row starts at the 4th of the previous row (5 semitones)
-    start += 5
+def makeJanko() -> Dict[str, int]:
+    """Returns a keyboard map modeled after the Janko keyboard"""
+    keys = {}
+    start = 57
+    for row in rows:
+        i = start
+        for key in row:
+            keys[key] = i
+            i += 2
+
+        # row above is down a semitone
+        start -= 1
+    return keys
+
+def makeHarmonic() -> Dict[str, int]:
+    """Returns a keyboard map modeled after the Harmonic keyboard.
+
+    Note that since on a harmonic keyobard, flat is "up", this shifts the
+    orientation so that fifths are to the right and minor and major thirds are
+    above.
+    """
+    keys = {}
+    start = 42
+    for row in rows:
+        i = start
+        for key in row:
+            keys[key] = i
+            i += 7
+
+        # row above is down a semitone
+        start -= 4
+    return keys
+
+def makeThirds() -> Dict[str, int]:
+    """Returns a keyboard map modeled after a guitar-like instrument.
+
+    Adjacent keys on the horizontal axis are a semi-tone apart and the key up
+    and to the left is always a major third of the current key.
+    """
+    keys = {}
+    start = 42
+    for row in rows:
+        i = start
+        for key in row:
+            keys[key] = i
+            i += 1
+
+        # row above is down a semitone
+        start += 4
+    return keys
 
 def defaultNoteFunc(note: int, enabled: bool) -> None:
     print(f'note {note} {enabled and "on" or "off"}')
@@ -75,11 +128,14 @@ WFACT = 1.73205
 
 class IsoKbdWin(Frame):
 
-    def __init__(self, playNote: NoteFunc = defaultNoteFunc,
+    def __init__(self, keys: Dict[str, int],
+                 playNote: NoteFunc = defaultNoteFunc,
                  toplevel: Union[Tk, Toplevel] = None
                  ):
         if toplevel is None:
             toplevel = Tk()
+
+        self.__keys = keys
 
         super(IsoKbdWin, self).__init__(toplevel)
 
@@ -96,7 +152,7 @@ class IsoKbdWin(Frame):
     def on_key_event(self, event: Event) -> Optional[str]:
         ch = keychar(event.keysym)
         poly_id = self.__key_polys.get(ch)
-        note_num = keys.get(ch)
+        note_num = self.__keys.get(ch)
         if poly_id is not None:
             if event.type == EventType.KeyPress:
                 self.__canvas.itemconfig(poly_id, fill = '#ffffff')
@@ -108,13 +164,6 @@ class IsoKbdWin(Frame):
         else:
             print(event.keysym)
             return None
-
-        handler = keys.get(event.keysym)
-        print(f'handler is {handler}, key is {event.keysym!r}')
-        if handler:
-            return handler(event, self.__playNote)
-        else:
-            return False
 
     def draw_keyboard(self, n: int) -> None:
         self.__key_polys : Dict[str, int] = {}
@@ -140,15 +189,31 @@ class IsoKbdWin(Frame):
             x, y,
             outline = '#ffffff')
 
-seq = getSequencer('isokbd')
-out = seq.createOutputPort('out')
+def makeNotePlayer(seq: Sequencer, out: PortInfo
+        ) -> Callable[[int, bool], None]:
+    """Returns a callable object that plays midi notes on a port."""
+    def playNote(note: int, enabled: bool) -> None:
+        if enabled:
+            seq.sendEvent(NoteOn(0, 0, note, 127), out)
+        else:
+            seq.sendEvent(NoteOff(0, 0, note, 0), out)
+    return playNote
 
-def playNote(note: int, enabled: bool) -> None:
-    if enabled:
-        seq.sendEvent(NoteOn(0, 0, note, 127), out)
+if __name__ == '__main__':
+    seq = getSequencer('isokbd')
+    out = seq.createOutputPort('out')
+    if len(sys.argv) > 1:
+        type = sys.argv[1]
+        if type == 'wicki':
+            keys = makeWickiHayden()
+        elif type.startswith('harm'):
+            keys = makeHarmonic()
+        elif type == 'janko':
+            keys = makeJanko()
+        elif type == 'thirds':
+            keys = makeThirds()
     else:
-        seq.sendEvent(NoteOff(0, 0, note, 0), out)
-
-win = IsoKbdWin(playNote=playNote)
-win.mainloop()
+        keys = makeWickiHayden()
+    win = IsoKbdWin(keys, playNote=makeNotePlayer(seq, out))
+    win.mainloop()
 
