@@ -27,6 +27,7 @@ from amidi import getSequencer, PortInfo, Sequencer
 from midi import Event as MidiEvent, NoteOn, NoteOff
 from tkinter import BOTH, Event, EventType, Frame, Canvas, NSEW, Text, Tk, \
     Toplevel
+from tkinter.font import Font
 from typing import Callable, Dict, Optional, Union
 
 # Note function: accepts an integer (the midi note value) and a bool (true is
@@ -68,6 +69,10 @@ def makeWickiHayden() -> Dict[str, int]:
         # Next row starts at the 4th of the previous row (5 semitones)
         start += 5
     return keys
+
+noteMap = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+def getNoteName(note: int) -> str:
+    return noteMap[note % 12]
 
 def makeJanko() -> Dict[str, int]:
     """Returns a keyboard map modeled after the Janko keyboard"""
@@ -123,8 +128,14 @@ def makeThirds() -> Dict[str, int]:
 def defaultNoteFunc(note: int, enabled: bool) -> None:
     print(f'note {note} {enabled and "on" or "off"}')
 
-# Width factor: square root of three.
+# Width factor: square root of three.  We use this to find the ratio from
+# HEXHEIGHT to half the width of a hexagon.
 WFACT = 1.73205
+
+# 1/4 the height of a hexagon in pixels.  This is convenient because it can be
+# used to compute the y coordinates of every point in the hexagon and also
+# (via WFACT) the x coordinates.
+HEXHEIGHT = 10
 
 class IsoKbdWin(Frame):
 
@@ -139,7 +150,7 @@ class IsoKbdWin(Frame):
 
         super(IsoKbdWin, self).__init__(toplevel)
 
-        self.__canvas = Canvas(self)
+        self.__canvas = Canvas(self, background='#000011')
         self.__canvas.bind('<KeyPress>', self.on_key_event)
         self.__canvas.bind('<KeyRelease>', self.on_key_event)
         self.__canvas.pack(expand=True, fill = BOTH)
@@ -147,7 +158,8 @@ class IsoKbdWin(Frame):
         self.__playNote = playNote
         self.pack(expand=True, fill = BOTH)
 
-        self.draw_keyboard(10)
+        self.textFont = Font(size=-HEXHEIGHT)
+        self.draw_keyboard(HEXHEIGHT)
 
     def on_key_event(self, event: Event) -> Optional[str]:
         ch = keychar(event.keysym)
@@ -155,7 +167,7 @@ class IsoKbdWin(Frame):
         note_num = self.__keys.get(ch)
         if poly_id is not None:
             if event.type == EventType.KeyPress:
-                self.__canvas.itemconfig(poly_id, fill = '#ffffff')
+                self.__canvas.itemconfig(poly_id, fill = '#0000ff')
                 self.__playNote(note_num, True)
             else:
                 self.__canvas.itemconfig(poly_id, fill = '#000000')
@@ -177,6 +189,16 @@ class IsoKbdWin(Frame):
                 x += w * 2
             y -= 3 * n
 
+        # Do the same with text so that all text ends up over all of the hexen.
+        y = n * 13
+        for i, row in enumerate(rows):
+            x = int(w * (2 + 4 - i))
+            for key in row:
+                id = self.draw_text(x, y, n, key,
+                                    getNoteName(self.__keys.get(key)))
+                x += w * 2
+            y -= 3 * n
+
     def draw_hex(self, x: int , y: int, n: int) -> int:
         w = WFACT * n
         return self.__canvas.create_polygon(
@@ -188,6 +210,14 @@ class IsoKbdWin(Frame):
             x - w, y + n,
             x, y,
             outline = '#ffffff')
+
+    def draw_text(self, x: int, y: int, n: int, ch: str, note: str) -> int:
+        self.__canvas.create_text(x, y + n, text=ch,
+                                  fill='#ffff00',
+                                  font=self.textFont)
+        self.__canvas.create_text(x, y + n * 3, text=note,
+                                  fill='#ffff00',
+                                  font=self.textFont)
 
 def makeNotePlayer(seq: Sequencer, out: PortInfo
         ) -> Callable[[int, bool], None]:
