@@ -23,6 +23,9 @@ The layouts currently supported are:
     key above and to the left is a major third up from the current note).
     [This layout was inspired by this article on the similar guitar
     tuning.](http://www.migo.info/music/major_third_guitar_tuning.xhtml_en.html)
+-   "Alt Thirds" is a different orientation on the "Thirds" layout.  The key
+    to the right is a major third and the key above and to the left is a
+    half-step below the current note.
 
 If you run `isokbd.py`, you'll get a window displaying a hexagonal
 representation of a standard computer keyboard labeled with the keyboard key
@@ -37,7 +40,8 @@ use Jankó:
     $ isokbd.py janko
 
 Supported type names are: "janko" (for Jankó), "wicki" (for Wicki-Hayden),
-"harm" (for Harmonic) and "thirds" (for the Thirds layout).
+"harm" (for Harmonic), "thirds" (for the Thirds layout) and "altthirds" for
+the alt-thirds layout.  The default layout is Wicki-Hayden.
 
 # Installation
 
