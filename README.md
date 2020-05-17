@@ -12,27 +12,44 @@ system are usable indepdendantly.
 # isokbd - Isomorphic Keyboard Controller
 
 Included in this package are the beginnings of isokbd.py, a script which lets
-you emulate hexagonal isomorphic keyboard controllers (currently only the
-[Wicki-Hayden](https://en.wikipedia.org/wiki/Wicki%E2%80%93Hayden_note_layout)
-layout) from a normal computer keyboard.
+you emulate hexagonal isomorphic keyboard controllers from a standard US
+layout computer keyboard.
+
+The layouts currently supported are:
+-   [Wicki-Hayden](https://en.wikipedia.org/wiki/Wicki%E2%80%93Hayden_note_layout)
+-   [Harmonic](https://en.wikipedia.org/wiki/Harmonic_table_note_layout)
+-   [Jankó](https://en.wikipedia.org/wiki/Jank%C3%B3_keyboard)
+-   "Thirds" (in which the key to the right is always a half step up and the
+    key above and to the left is a major third up from the current note).
+    [This layout was inspired by this article on the similar guitar
+    tuning.](http://www.migo.info/music/major_third_guitar_tuning.xhtml_en.html)
 
 If you run `isokbd.py`, you'll get a window displaying a hexagonal
-representation of a standard computer keyboard.  The program will bind to a
-new alsa midi client named "isokbd".  You should be able to connect the
-solitary output port of this client to your software or attached hardware of
-choice and play music from the keyboard.
+representation of a standard computer keyboard labeled with the keyboard key
+and the note that it will play.  The program will bind to a new alsa midi
+client named "isokbd".  You should be able to connect the solitary output
+port of this client to your software or attached hardware of choice and play
+music from the keyboard.
+
+You can specify the keyboard layout with the first argument.  For example, to
+use Jankó:
+
+    $ isokbd.py janko
+
+Supported type names are: "janko" (for Jankó), "wicki" (for Wicki-Hayden),
+"harm" (for Harmonic) and "thirds" (for the Thirds layout).
 
 # Installation
 
 To do a complete installation, follow the instructions in INSTALL (a virtual
-env should not strictly be necessary.
+env should not strictly be necessary).
 
-For `isokbd.py` you can just do this.
+For `isokbd.py` you should only need swig and the alsa libaries and headers
+("swig" and "libasound2-dev" on debian-derivatives) and you can install like
+so:
 
     python3 setup.py build
     sudo python3 setup.py install
-
-
 
 # LICENSE
 
