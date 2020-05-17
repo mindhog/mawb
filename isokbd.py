@@ -125,6 +125,26 @@ def makeThirds() -> Dict[str, int]:
         start += 4
     return keys
 
+def makeAltThirds() -> Dict[str, int]:
+    """Returns a keyboard map like "thirds" with reversed orientation.
+
+    The "alt-thirds" configuration puts the major third to the right of the
+    current key, the minor third to the upper right, and half step above to
+    the lower right.  This seems to be a pretty good configuration for a
+    typewriter keyboard.
+    """
+    keys = {}
+    start = 42
+    for row in rows:
+        i = start
+        for key in row:
+            keys[key] = i
+            i += 4
+
+        # row above is down a semitone
+        start -= 1
+    return keys
+
 def defaultNoteFunc(note: int, enabled: bool) -> None:
     print(f'note {note} {enabled and "on" or "off"}')
 
@@ -210,7 +230,6 @@ class IsoKbdWin(Frame):
         # release has since been reset to the beginning of time (indicating
         # that we've since received a "note pressed" with the same timestamp).
         if self.__noteReleased[note_num] != BEGIN_TIME:
-            print(f'releasing {note_num}')
             self.__canvas.itemconfig(poly_id, fill = '#000000')
             self.__playNote(note_num, False)
 
@@ -277,6 +296,8 @@ if __name__ == '__main__':
             keys = makeJanko()
         elif type == 'thirds':
             keys = makeThirds()
+        elif type == 'altthirds':
+            keys = makeAltThirds()
     else:
         keys = makeWickiHayden()
     win = IsoKbdWin(keys, playNote=makeNotePlayer(seq, out))
