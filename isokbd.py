@@ -137,6 +137,11 @@ WFACT = 1.73205
 # (via WFACT) the x coordinates.
 HEXHEIGHT = 10
 
+# The beginning of time for tk events.  I haven't been able to find a good
+# definition of what this means, but it seems to always be greater than
+# MIN_INT33, which is kind of weird.
+BEGIN_TIME = -0xffffffff
+
 class IsoKbdWin(Frame):
 
     def __init__(self, keys: Dict[str, int],
@@ -158,6 +163,12 @@ class IsoKbdWin(Frame):
         self.__playNote = playNote
         self.pack(expand=True, fill = BOTH)
 
+        # Keep track of the last time a note was released (so we can deal with
+        # key auto-repeats).  Use an initial default time that is before any
+        # event time I've observed (not sure where the initial time comes
+        # from).
+        self.__noteReleased = [BEGIN_TIME] * 128
+
         self.textFont = Font(size=-HEXHEIGHT)
         self.draw_keyboard(HEXHEIGHT)
 
@@ -167,15 +178,41 @@ class IsoKbdWin(Frame):
         note_num = self.__keys.get(ch)
         if poly_id is not None:
             if event.type == EventType.KeyPress:
-                self.__canvas.itemconfig(poly_id, fill = '#0000ff')
-                self.__playNote(note_num, True)
+                # If this is the same as the last "note released" time for the
+                # note, then it's a keyboard auto-repeat so we want to ignore
+                # it.  Otherwise, send a new note and change the display to
+                # indicate the note is active.
+                if self.__noteReleased[note_num] != event.time:
+                    self.__canvas.itemconfig(poly_id, fill = '#0000ff')
+                    self.__playNote(note_num, True)
+                else:
+                    # This is an auto-repeat.  Set the release time to the
+                    # beginning of time to cancel any deferred note release
+                    # processing.
+                    self.__noteReleased[note_num] = BEGIN_TIME
             else:
-                self.__canvas.itemconfig(poly_id, fill = '#000000')
-                self.__playNote(note_num, False)
+                # We don't want to immediately react to a note released event,
+                # as this may be a legitimate note release or it may be the
+                # result of an auto-repeat.  Store the last release time and
+                # kick off a background notification in 1/100th of a second to
+                # actually process the release if we haven't received a
+                # keypress for the note since then.
+                self.__noteReleased[note_num] = event.time
+                self.after(10, lambda: self.__release_note(note_num, poly_id))
             return 'break'
         else:
             print(event.keysym)
             return None
+
+    def __release_note(self, note_num: int, poly_id: int) -> None:
+        # This is called shortly after the actual note release message comes
+        # in.  Go ahead and process the note release unless the last note
+        # release has since been reset to the beginning of time (indicating
+        # that we've since received a "note pressed" with the same timestamp).
+        if self.__noteReleased[note_num] != BEGIN_TIME:
+            print(f'releasing {note_num}')
+            self.__canvas.itemconfig(poly_id, fill = '#000000')
+            self.__playNote(note_num, False)
 
     def draw_keyboard(self, n: int) -> None:
         self.__key_polys : Dict[str, int] = {}
@@ -212,11 +249,9 @@ class IsoKbdWin(Frame):
             outline = '#ffffff')
 
     def draw_text(self, x: int, y: int, n: int, ch: str, note: str) -> int:
-        self.__canvas.create_text(x, y + n, text=ch,
-                                  fill='#ffff00',
+        self.__canvas.create_text(x, y + n, text=ch, fill='#ffff00',
                                   font=self.textFont)
-        self.__canvas.create_text(x, y + n * 3, text=note,
-                                  fill='#ffff00',
+        self.__canvas.create_text(x, y + n * 3, text=note, fill='#ffff00',
                                   font=self.textFont)
 
 def makeNotePlayer(seq: Sequencer, out: PortInfo
