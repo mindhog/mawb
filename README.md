@@ -48,9 +48,9 @@ the alt-thirds layout.  The default layout is Wicki-Hayden.
 To do a complete installation, follow the instructions in INSTALL (a virtual
 env should not strictly be necessary).
 
-For `isokbd.py` you should only need swig and the alsa libaries and headers
-("swig" and "libasound2-dev" on debian-derivatives) and you can install like
-so:
+For `isokbd.py` you should only need swig, tkinter and the alsa libaries and
+headers ("swig", "python3-tk" and "libasound2-dev" on debian-derivatives) and
+you can install like so:
 
     python3 setup.py build
     sudo python3 setup.py install
