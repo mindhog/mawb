@@ -298,7 +298,7 @@ class SysEx(Event):
    def __str__(self):
       val = ''
       for c in self.data:
-         val = val + ' %0x' % ord(c)
+         val = val + ' %0x' % c
       return 'SysEx: %s' % val
 
    def __repr__(self):
@@ -325,6 +325,26 @@ class SysContinue(SysRealtime):
 
 class SysStop(SysRealtime):
    _code = 0xFC
+
+# Meta-events.
+
+class SetTempo(Event):
+
+   def __init__(self, time: int, tempo: int):
+      super(SetTempo, self).__init__(time)
+      self.tempo : int = tempo
+
+   def asMidiString(self, status):
+      return 0xFF, struct.unpack(b'BBBBB', 0xFF, 3, self.tempo >> 16,
+                                 (self.tempo >> 8) & 0xff,
+                                 self.tempo & 0xff
+                                 )
+
+   def __str__(self):
+      return f'SetTempo: {self.time} {self.tempo}ms/beat'
+
+   def __repr__(self):
+      return f'SetTempo({self.time}, {self.tempo})'
 
 # XXX Still need the following classes:
 #     AfterTouch
@@ -398,7 +418,7 @@ class Track:
          A track name must be unique within the piece.
    """
       
-   def __init__(self, name = "", events = []):
+   def __init__(self, name = "", events = [], ppqn = 24):
       """
          /events/ may be used to construct a track with a prefilled
          event list, but the constructor _does not attempt to guarantee
@@ -407,6 +427,7 @@ class Track:
       # __events is a list of Event objects
       self.__events = events
       self.name = name
+      self.ppqn = ppqn
    
    def add(self, event):
       """
@@ -746,6 +767,7 @@ class StreamReader:
 
    def _processCmd(self, time, cmd):
       evt = None
+      extra = 0
       if cmd & 0x80:
          highNyb = cmd & 0xF0
          if highNyb == 0x80:
