@@ -33,9 +33,14 @@
 #
 #==============================================================================
 
-from midi import SysEx, TrackCursor, StreamReader, Track, Piece
-import string, struct
+from midi import Event, SetTempo, SysEx, NoteOn, NoteOff, TrackCursor, \
+   StreamReader, Track, Piece
+import six, string, struct
 from io import StringIO
+
+class EndTrack:
+   def __init__(self, time: int):
+      self.time = time
 
 class Writer:
    
@@ -43,10 +48,10 @@ class Writer:
       self.file = file
    
    def writeMThd(self, format, tracks, rate):
-      self.file.write(struct.pack('>4sihhh', 'MThd', 6, format, tracks, rate))
+      self.file.write(struct.pack('>4sihhh', b'MThd', 6, format, tracks, rate))
    
    def writeMTrk(self, trackData):
-      self.file.write(struct.pack('>4si', 'MTrk', len(trackData)))
+      self.file.write(struct.pack('>4si', b'MTrk', len(trackData)))
       self.file.write(trackData)
    
    def encodeVarLen(self, num):
@@ -60,9 +65,9 @@ class Writer:
       data = bytes(data)
       return data
    
-   def encodeTrackName(self, name):
+   def encodeTrackName(self, name: str):
       return struct.pack('BBB', 0, 0xFF, 3) + \
-         self.encodeVarLen(len(name)) + name
+         self.encodeVarLen(len(name)) + six.ensure_binary(name)
    
    def encodeEvents(self, track):
       status = 0
@@ -108,7 +113,7 @@ class Reader(StreamReader):
       self.__trackName = ''
       self.__piece = None
       self.__gotEvent = 0
-      self.__ppqn = 50.0
+      self.__ppqn = 24.0
 #      self.__tempo = 20833.3333333
       self.__tempo = 500000.0
    
@@ -116,12 +121,12 @@ class Reader(StreamReader):
       return struct.unpack('>I', self.file.read(4))[0]
 
    def readVarLen(self, track, cur):
-      byte = ord(track[cur])
+      byte = track[cur]
       cur = cur + 1
       val = 0
       while byte & 0x80:
          val = val << 7 | byte & 0x7F
-         byte = ord(track[cur])
+         byte = track[cur]
          cur = cur + 1
       val = val << 7 | byte
       return val, cur
@@ -159,7 +164,7 @@ class Reader(StreamReader):
       cur = cur + 1
       
       # get the command
-      cmd = ord(track[cur])
+      cmd = track[cur]
       cur = cur + 1
       
       # get the length
@@ -172,51 +177,114 @@ class Reader(StreamReader):
       if cmd == 3:
          self.__trackName = data
       elif cmd == 0x51:
-         self.__tempo = struct.unpack('>I', '\0' + data)[0]
+         self.__tempo = struct.unpack('>I', b'\0' + data)[0]
       
       print('got special command %02x of size %d with data %s' % \
          (cmd, dataLen, data))
       return cur
 
-   def parseTrack(self, track, trackName = None):
-      status = 0
-      cur = 0
-      trackLen = len(track)
-      lastTime = 0
-      while cur < trackLen:
-         # read the timestamp
-         time, cur = self.readVarLen(track, cur)
-         time = lastTime + time
-         lastTime = time
-         time = self.__cvtTime(lastTime)
-#         print 'got time: %d converting to %d' % (lastTime, time)
-         
-         # read the event
-         while not self.__gotEvent:
-            cmd = ord(track[cur])
+   class TrackParser:
+      def __init__(self, track: bytes):
+         self.__track = track
+         self.__cur = 0;
+         self.__status = 0
+         print(self.__track)
+
+      def readByte(self) -> int:
+         result = self.__track[self.__cur]
+         self.__cur += 1
+         return result
+
+      def readEvent(self) -> Event:
+         first = self.readByte()
+
+        # is it a status byte?
+         if first & 0x80:
+            self.__status = first
+            print('got status %x' % self.__status)
+            first = self.readByte()
+
+         statusHigh = self.__status & 0xF0
+         channel = self.__status & 0xF
+         if statusHigh == 0x90:
+            velocity = self.readByte()
+            if velocity:
+               return NoteOn(0, channel, first, velocity)
+            else:
+               return NoteOff(0, channel, first, velocity)
+         elif statusHigh == 0x80:
+            return NoteOff(0, channel, first, self.readByte())
+         elif statusHigh == 0xE0:
+            high = self.readByte()
+            return PitchWheel(0, channel, (self.readByte() << 7) | first)
+         elif statusHigh == 0xC0:
+            return ProgramChange(0, channel, first)
+         elif statusHigh == 0xB0:
+            return ControlChange(0, channel, first, self.readByte())
+         elif self.__status == 0xFF:
+            # Parse a "meta event".
+            action = first
+            if action == 0x2F:
+                self.readByte()
+                return EndTrack(0)
+            elif action == 0x51:
+               len = self.readVarLen()
+               if len != 3:
+                  raise ParseError('SetTempo event data should be of length, '
+                                   f'got {len}')
+               a, b, c = struct.unpack('BBB', 
+                                       self.__track[self.__cur:self.__cur + 3]
+                                       )
+               result = SetTempo(0, a << 24 |  b << 16 | c)
+               self.__cur += 3
+               return result
+            else:
+               len = self.readVarLen()
+               print('unknown meta event %x %x %s' % 
+                     (action, len, self.__track[self.__cur:self.__cur + len])
+                     )
+               self.__cur += len
+               return None
+         elif statusHigh == 0xF0:
+            # sys-ex event
+            size = self.readVarLen();
             
-            # check for one of the "file-only" commands
-            if cmd == 0xFF:
-               cur = self.parseSpecialCommand(track, cur)
+            return SysEx(0, self.__track[self.__cur:self.__cur + size])
+         else:
+            raise Exception('unknown status %x' % self.__status)
+
+      def readAll(self):
+         events = []
+         time = 0
+         while True:
+            time += self.readVarLen()
+            event = self.readEvent()
+            if isinstance(event, EndTrack):
                break
+            if event:
+               event.time = time
+               events.append(event)
+         return events
             
-            self._processCmd(time, cmd)
-            cur = cur + 1
-            if cmd == 0xF0:
-               bogus, cur = self.readVarLen(track, cur)
-               
-         self.__gotEvent = 0
-         
-      track = Track(name = trackName or self.computeTrackName(),
-                    events = self._inputEvents
-                    )
-      self._inputEvents = []
-      return track
+      def readVarLen(self):
+         byte = self.readByte()
+         val = 0
+         while byte & 0x80:
+            val = val << 7 | byte & 0x7F
+            byte = self.readByte()
+         val = val << 7 | byte
+         return val
+
+   def parseTrack(self, track, trackName = None):
+      return Track(trackName or self.computeTrackName(),
+                   self.TrackParser(track).readAll(),
+                   ppqn = self.__ppqn
+                   )
 
    def readTrack(self):
       self.__trackName = ''
       chunkType = self.file.read(4)
-      if chunkType == 'MTrk':
+      if chunkType == b'MTrk':
          len = self.readLen()
          track = self.file.read(len)
          return self.parseTrack(track)
@@ -228,7 +296,7 @@ class Reader(StreamReader):
    def readPiece(self):
       self.__piece = Piece()
       chunkType = self.file.read(4)
-      if chunkType == 'MThd':
+      if chunkType == b'MThd':
          len = self.readLen()
          if len != 6:
             raise ParseError('MThd of unexpected size %d' % len)
