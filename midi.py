@@ -346,6 +346,16 @@ class SetTempo(Event):
    def __repr__(self):
       return f'SetTempo({self.time}, {self.tempo})'
 
+class AllSoundOff(ControlChange):
+
+   def __init__(self, time: int, channel: int):
+      super(AllSoundOff, self).__init__(time, channel, 120, 0)
+
+class AllNotesOff(ControlChange):
+
+   def __init__(self, time: int, channel: int):
+      super(AllNotesOff, self).__init__(time, channel, 123, 0)
+
 # XXX Still need the following classes:
 #     AfterTouch
 #     ChannelPressure
