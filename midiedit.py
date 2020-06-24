@@ -92,8 +92,16 @@ class MidiEditor(Frame):
         self.pack(expand=True, fill=BOTH)
         self.__draw_canvas()
 
-        # Set up the queue.
-        self.__queue = Queue()
+        # Set up the queue.  This is to allow background threads to post
+        # changes to the Tk thread.
+        self.__queue : 'Queue[Callable[[], Any]]' = Queue()
+
+        # A mapping from the ids of the widgets that represent notes to the
+        # list of note events that comprise them.
+        # At present, there will usually be exactly two events in this list.
+        # However, if support for aftertouch events are added, they will
+        # likely be included in this list, too.
+        self.__note_map : Dict[int, List[Event]] = {}
 
         self.__key_canvas = Canvas(self, width=KEYS_WIDTH)
         self.__key_canvas.grid(row=0, column=0, sticky=NSEW)
@@ -212,8 +220,20 @@ class MidiEditor(Frame):
     def __end_drag(self, id: int, event: Event) -> Optional[str]:
         self.__canvas.tag_unbind(id, '<Motion>')
         self.__canvas.tag_unbind(id, '<ButtonRelease-1>')
-        self.__drag_offset = None
         self.__audio.end_note_edit()
+
+        # Move the original events to the new time and note.
+        note = self.__note_from_y(event.y)
+        t = self.__time_from_x(event.x - self.__drag_offset[0])
+        events = self.__note_map[id]
+        start_time = events[0].time
+        for event in events:
+            if isinstance(event, (NoteOn, NoteOff)):
+                event.note = note
+            if t != start_time:
+                event.time = t + event.time - start_time
+                self.__track.reposition(event)
+        self.__drag_offset = None
 
     def __drag(self, id: int, event: Event) -> Optional[str]:
         note = self.__note_from_y(event.y)
@@ -230,8 +250,6 @@ class MidiEditor(Frame):
         self.__canvas.tag_bind(id, '<ButtonRelease-1>',
                                lambda e: self.__end_drag(id, e)
                                )
-
-        # xxx look up the original note somehow
 
         self.__audio.begin_note_edit(self.__note_from_y(cy), velocity=127)
         return 'break'
@@ -256,12 +274,12 @@ class MidiEditor(Frame):
         note = self.__note_from_y(event.y)
         t = self.__time_from_x(event.x)
         self.__audio.begin_note_edit(note, velocity=127)
-        self.__draw_new_note(note, t, t + self.__note_len)
-        self.__track.add(NoteOn(t, self.__channel, note, self.__velocity))
-        self.__track.add(NoteOff(t + self.__note_len, self.__channel, note,
-                                 0
-                                 )
-                         )
+        id = self.__draw_new_note(note, t, t + self.__note_len)
+        note_on = NoteOn(t, self.__channel, note, self.__velocity)
+        note_off = NoteOff(t + self.__note_len, self.__channel, note, 0)
+        self.__track.add(note_on)
+        self.__track.add(note_off)
+        self.__note_map[id] = [note_on, note_off]
 
     def __end_add_note(self, event: Event) -> None:
         self.__audio.end_note_edit()
