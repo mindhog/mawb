@@ -457,6 +457,11 @@ class Track:
                break
             i = i + 1
 
+   def reposition(self, event):
+      """Move 'event' to the correct position based on its time."""
+      self.__events.remove(event)
+      self.add(event)
+
    def __getitem__(self, index):
       """
          Returns a tuple consisting of the absolute time of the event and the
