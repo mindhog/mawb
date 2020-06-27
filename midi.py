@@ -341,7 +341,7 @@ class SetTempo(Event):
                                  )
 
    def __str__(self):
-      return f'SetTempo: {self.time} {self.tempo}ms/beat'
+      return f'SetTempo: {self.time} {self.tempo}us/beat'
 
    def __repr__(self):
       return f'SetTempo({self.time}, {self.tempo})'
