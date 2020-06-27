@@ -11,8 +11,8 @@ from midi import AllSoundOff, ControlChange, NoteOn, NoteOff, Piece, \
 from midifile import Reader as MidiFileReader, Writer as MidiFileWriter
 from threading import Thread
 from typing import Callable, Optional, Tuple, Union
-from tkinter import Canvas, Event, Frame, Label, Tk, Toplevel, PhotoImage, \
-    BOTH, NSEW
+from tkinter import Canvas, Event, Frame, Label, Scrollbar, Tk, Toplevel, \
+    PhotoImage, BOTH, HORIZONTAL, VERTICAL, NSEW
 
 IMAGE = 'test.png'
 
@@ -80,6 +80,7 @@ class AudioIFace(ABC):
         return self.isPlaying()
 
 class MidiEditor(Frame):
+
     def __init__(self, toplevel: Union[Tk, Toplevel, None] = None,
                  track: Optional[Track] = None,
                  audio: Optional[AudioIFace] = None
@@ -91,6 +92,13 @@ class MidiEditor(Frame):
         self.__canvas.focus_set()
         self.pack(expand=True, fill=BOTH)
         self.__draw_canvas()
+
+        hsb = Scrollbar(self, orient=HORIZONTAL, command=self.__canvas.xview)
+        hsb.grid(row=1, column=1, sticky=NSEW)
+        vsb = Scrollbar(self, orient=VERTICAL, command=self.__canvas.yview)
+        vsb.grid(row=0, column=2, sticky=NSEW)
+
+        self.__canvas.config(xscrollcommand=hsb.set, yscrollcommand=vsb.set)
 
         # Set up the queue.  This is to allow background threads to post
         # changes to the Tk thread.
@@ -141,16 +149,23 @@ class MidiEditor(Frame):
 
         toplevel.bind('<space>', self.__toggle_play)
 
-        # Render the measure lines.
+        # Render the note and measure lines.
         measure = self.__ppb * self.__sig
+        note = self.__ppb
         end_time = track[-1].time if track else (measure * 20)
-        t = measure
+        t = note
         while t < end_time + measure:
             x = self.__x_from_time(t)
             self.__canvas.create_line(x, 0, x, 128 * ROW_HEIGHT,
-                                      fill=GRID_LINE_COLOR
+                                      fill=GRID_LINE_COLOR,
+                                      dash=(3, 3) if t % measure else None
                                       )
-            t += measure
+            t += note
+
+        self.__canvas.config(scrollregion=(0, 0, self.__x_from_time(end_time),
+                                           128 * ROW_HEIGHT
+                                           )
+                             )
 
         # Render the position line.
         if audio:
