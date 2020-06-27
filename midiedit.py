@@ -64,6 +64,10 @@ class AudioIFace(ABC):
         """Set the current play position (in ticks)."""
 
     @abstractmethod
+    def get_pos(self) -> int:
+        """Return the current play position (in ticks)."""
+
+    @abstractmethod
     def stop(self):
         """Stop playing."""
 
@@ -147,7 +151,11 @@ class MidiEditor(Frame):
 
         self.__audio = audio
 
+        # Key bindings.  We have to bind these to the toplevel, the frame
+        # won't intercept them.
         toplevel.bind('<space>', self.__toggle_play)
+        toplevel.bind('<Left>', self.__left_note)
+        toplevel.bind('<Right>', self.__right_note)
 
         # Render the note and measure lines.
         measure = self.__ppb * self.__sig
@@ -191,6 +199,28 @@ class MidiEditor(Frame):
                     print('Unmatched end note: %s' % note.note)
 
         self.after(100, self.__process_queue)
+
+    # Position Navigation functions
+
+    def __left_note(self, event: Event):
+        """Move the play-head one beat left (back in time)."""
+        pos = self.__audio.get_pos()
+        if not pos:
+            # Do nothing if we're already at zero.
+            return
+
+        if pos % self.__ppb:
+            # between two notes, quantify to the previous one.
+            pos = pos // self.__ppb * self.__ppb
+        else:
+            pos = (pos // self.__ppb - 1) * self.__ppb
+        self.__audio.set_pos(pos)
+
+    def __right_note(self, event: Event):
+        """Move the play-head one beat right (forward in time)."""
+        self.__audio.set_pos(
+            (self.__audio.get_pos() // self.__ppb + 1) * self.__ppb
+        )
 
     def __process_queue(self) -> None:
         """Process all events on the queue.
@@ -378,9 +408,9 @@ class AlsaAudioIFace(AudioIFace):
                                )
                     if self.__stopped:
                         return
+                    self.__pos = t = (time.time() - start_time) * tps
                     if self.__callback:
                         self.__callback(t)
-                    self.__pos = t = (time.time() - start_time) * tps
                 if isinstance(event, (NoteOn, NoteOff, ControlChange,
                                       ProgramChange, PitchWheel
                                       )
@@ -394,7 +424,6 @@ class AlsaAudioIFace(AudioIFace):
                 self.seq.sendEvent(AllSoundOff(0, channel), self.port)
 
     def play(self, track: Track) -> None:
-        self.__pos = 0  # hack until we can reposition
         if not self.__stopped:
             return
         self.__stopped = False
@@ -406,6 +435,11 @@ class AlsaAudioIFace(AudioIFace):
 
     def set_pos(self, pos: int) -> None:
         self.__pos = pos
+        if self.__callback:
+            self.__callback(pos)
+
+    def get_pos(self) -> int:
+        return self.__pos
 
     def stop(self) -> None:
         self.__stopped = True
@@ -440,6 +474,7 @@ if __name__ == '__main__':
     tk.bind('<F2>', save)
     seq = Sequencer(SND_SEQ_OPEN_OUTPUT, 0, name='midiedit')
     port = seq.createOutputPort('out')
+    print(f'ppqn = {track.ppqn}')
     win = MidiEditor(tk, track, AlsaAudioIFace(seq, port, track.ppqn))
     win.mainloop()
 
