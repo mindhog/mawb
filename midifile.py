@@ -92,8 +92,8 @@ class Writer:
       return buffer + self.encodeEvents(track)
    
    def writePiece(self, piece):
-      tracks = piece.getTracks()
-      self.writeMThd(1, len(tracks), 50)
+      tracks = tuple(piece.getTracks())
+      self.writeMThd(1, len(tracks), tracks[0].ppqn)
       for track in tracks:
          trackData = self.encodeTrack(track)
          self.writeMTrk(trackData)
