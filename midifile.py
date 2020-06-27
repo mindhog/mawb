@@ -201,7 +201,6 @@ class Reader(StreamReader):
         # is it a status byte?
          if first & 0x80:
             self.__status = first
-            print('got status %x' % self.__status)
             first = self.readByte()
 
          statusHigh = self.__status & 0xF0
@@ -235,7 +234,7 @@ class Reader(StreamReader):
                a, b, c = struct.unpack('BBB', 
                                        self.__track[self.__cur:self.__cur + 3]
                                        )
-               result = SetTempo(0, a << 24 |  b << 16 | c)
+               result = SetTempo(0, (a << 16) | (b << 8) | c)
                self.__cur += 3
                return result
             else:

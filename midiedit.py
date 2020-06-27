@@ -7,7 +7,7 @@ import time
 from alsa_midi import SND_SEQ_OPEN_OUTPUT
 from amidi import PortInfo, Sequencer
 from midi import AllSoundOff, ControlChange, NoteOn, NoteOff, Piece, \
-    PitchWheel, ProgramChange, Track
+    PitchWheel, ProgramChange, SetTempo, Track
 from midifile import Reader as MidiFileReader, Writer as MidiFileWriter
 from threading import Thread
 from typing import Callable, Optional, Tuple, Union
@@ -329,16 +329,19 @@ class MidiEditToplevel(Toplevel):
 
 class AlsaAudioIFace(AudioIFace):
 
-    def __init__(self, seq: Sequencer, port: PortInfo):
+    def __init__(self, seq: Sequencer, port: PortInfo, ppb: int):
         self.seq = seq
         self.port = port
         self.__last_note = -1
         self.__pos = 0
-        self.__ticks_per_sec = 48  # need to get this in the parameters
+        # Start ticks per sec as a bogus value, respond to a SetTempo event
+        # while replaying.
+        self.__ticks_per_sec = 48
         self.__stopped = True
         self.__callback = None
         self.__thread = None
         self.__track = None
+        self.__ppb = ppb
 
     def begin_note_edit(self, note: int, velocity: int) -> None:
         self.seq.sendEvent(NoteOn(0, 0, note, velocity), self.port)
@@ -383,12 +386,15 @@ class AlsaAudioIFace(AudioIFace):
                                       )
                               ):
                     self.seq.sendEvent(event, self.port)
+                elif isinstance(event, SetTempo):
+                    print(f'usecs per qn {event.tempo}')
+                    self.__ticks_per_sec = 1000000 / event.tempo * self.__ppb
         finally:
             for channel in range(16):
                 self.seq.sendEvent(AllSoundOff(0, channel), self.port)
 
     def play(self, track: Track) -> None:
-        self.__pos = 0
+        self.__pos = 0  # hack until we can reposition
         if not self.__stopped:
             return
         self.__stopped = False
@@ -434,6 +440,6 @@ if __name__ == '__main__':
     tk.bind('<F2>', save)
     seq = Sequencer(SND_SEQ_OPEN_OUTPUT, 0, name='midiedit')
     port = seq.createOutputPort('out')
-    win = MidiEditor(tk, track, AlsaAudioIFace(seq, port))
+    win = MidiEditor(tk, track, AlsaAudioIFace(seq, port, track.ppqn))
     win.mainloop()
 
