@@ -18,6 +18,7 @@ setup(
         'mock', # mock-2.0.0
     ],
     scripts = [
-        'isokbd.py'
+        'isokbd.py',
+        'midiedit.py',
     ],
 )
