@@ -1,5 +1,6 @@
 
 from abc import abstractmethod, ABC
+from enum import Enum
 import os
 from queue import Queue
 import time
@@ -27,6 +28,11 @@ POS_MARKER_COLOR = '#ff0000'
 
 NOTE_COLORS = [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0]
 GRID_LINE_COLOR = '#000044'
+
+class DragMode(Enum):
+    NONE = 0    # Not dragging.
+    MOVE = 1    # Move a note to a different note or position
+    EXTEND = 2  # Make the note longer or shorter or start earlier/later
 
 class AudioIFace(ABC):
 
@@ -127,9 +133,17 @@ class MidiEditor(Frame):
         self.columnconfigure(1, weight=1)
         self.rowconfigure(0, weight=1)
 
+        # Drag parameters.
+
         # Offset from the note position to the mouse position at the start of
         # the drag.
         self.__drag_offset : Optional[Tuple[int, int]] = None
+
+        # X position at the start of the drag.
+        self.__drag_org_x : int = 0
+
+        # Current drag mode.
+        self.__drag_mode : DragMode = DragMode.NONE
 
         # "Pulses per beat" (usually "Pulses per quarter note.")
         self.__ppb : int = self.__track.ppqn
@@ -267,36 +281,62 @@ class MidiEditor(Frame):
         self.__canvas.tag_unbind(id, '<ButtonRelease-1>')
         self.__audio.end_note_edit()
 
-        # Move the original events to the new time and note.
-        note = self.__note_from_y(event.y)
-        t = self.__time_from_x(event.x - self.__drag_offset[0])
-        events = self.__note_map[id]
-        start_time = events[0].time
-        for event in events:
-            if isinstance(event, (NoteOn, NoteOff)):
-                event.note = note
-            if t != start_time:
-                event.time = t + event.time - start_time
-                self.__track.reposition(event)
+        if self.__drag_mode == DragMode.MOVE:
+            # Move the original events to the new time and note.
+            note = self.__note_from_y(event.y)
+            t = self.__time_from_x(event.x - self.__drag_offset[0])
+            events = self.__note_map[id]
+            start_time = events[0].time
+            for event in events:
+                if isinstance(event, (NoteOn, NoteOff)):
+                    event.note = note
+                if t != start_time:
+                    event.time = t + event.time - start_time
+                    self.__track.reposition(event)
+        elif self.__drag_mode == DragMode.EXTEND:
+            length = event.x - self.__drag_org_x
+            events = self.__note_map[id]
+            events[1].time += self.__time_from_x(length)
+            self.__track.reposition(events[1])
+
+        self.__drag_mode = DragMode.NONE
         self.__drag_offset = None
+        self.__drag_org_x = 0
 
     def __drag(self, id: int, event: Event) -> Optional[str]:
-        note = self.__note_from_y(event.y)
-        y = (127 - note) * ROW_HEIGHT
-        x = event.x - self.__drag_offset[0]
-        x1, _, x2, _ = self.__canvas.coords(id)
-        self.__canvas.coords(id, x, y, x + x2 - x1, y + ROW_HEIGHT)
-        self.__audio.next_note_edit(note, velocity=127)
+        if self.__drag_mode == DragMode.MOVE:
+            note = self.__note_from_y(event.y)
+            y = (127 - note) * ROW_HEIGHT
+            x = event.x - self.__drag_offset[0]
+            x1, _, x2, _ = self.__canvas.coords(id)
+            self.__canvas.coords(id, x, y, x + x2 - x1, y + ROW_HEIGHT)
+            self.__audio.next_note_edit(note, velocity=127)
+        elif self.__drag_mode == DragMode.EXTEND:
+            length = event.x - self.__drag_org_x
+            x1, y1, x2, y2 = self.__canvas.coords(id)
+            events = self.__note_map[id]
+            org_len = self.__x_from_time(events[1].time - events[0].time)
+            if length + org_len > 0:
+                self.__canvas.coords(id, x1, y1, x1 + org_len + length, y2)
 
-    def __begin_drag_note(self, id: int, event: Event) -> Optional[str]:
+    def __begin_drag(self, id: int, event: Event, mode: DragMode) -> None:
         cx, cy, _, _ = self.__canvas.coords(id)
+        self.__drag_org_x = event.x
         self.__drag_offset = (event.x - cx, event.y - cy)
         self.__canvas.tag_bind(id, '<Motion>', lambda e: self.__drag(id, e))
         self.__canvas.tag_bind(id, '<ButtonRelease-1>',
                                lambda e: self.__end_drag(id, e)
                                )
+        self.__drag_mode = mode
 
         self.__audio.begin_note_edit(self.__note_from_y(cy), velocity=127)
+
+    def __begin_drag_note(self, id: int, event: Event) -> Optional[str]:
+        self.__begin_drag(id, event, DragMode.MOVE)
+        return 'break'
+
+    def __begin_duration_drag(self, id: int, event: Event) -> Optional[str]:
+        self.__begin_drag(id, event, DragMode.EXTEND)
         return 'break'
 
     def __draw_new_note(self, note: int, t1: int, t2: int) -> int:
@@ -307,6 +347,9 @@ class MidiEditor(Frame):
                                             fill=NOTE_FILL_COLOR)
         self.__canvas.tag_bind(id, '<Button-1>',
                                lambda e: self.__begin_drag_note(id, e)
+                               )
+        self.__canvas.tag_bind(id, '<Shift-Button-1>',
+                               lambda e: self.__begin_duration_drag(id, e)
                                )
         return id
 
