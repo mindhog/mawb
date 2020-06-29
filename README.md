@@ -43,14 +43,40 @@ Supported type names are: "janko" (for Jankó), "wicki" (for Wicki-Hayden),
 "harm" (for Harmonic), "thirds" (for the Thirds layout) and "altthirds" for
 the alt-thirds layout.  The default layout is Wicki-Hayden.
 
+# midiedit - Midi piano-roll editor
+
+Also included in this package is a stand-alone midi piano roll editor,
+`midiedit.py`.  It's still very much a work in progress.  To run it:
+
+    $ midiedit.py <filename.mid>
+
+The filename is optional, if unspecified the editor will save to a unique
+filename of the form "unnamed<n>.mid".
+
+You'll want to connect the midi port of the editor to a synth of some sort so
+you can hear what you're doing.
+
+To operate the editor:
+
+-   Click on a location to place a quarter-note there.
+-   Click and drag notes around to different positions.
+-   Shift-click and drag to lengthen or shorten notes.
+-   Space to play the piece.
+-   Left/right keys to move the playhead back and forth single notes
+-   F2 to save your midi file.
+
+There's a lot that's missing from the editor at this point, notably velocity
+editing, channel control, deletes, selection... As stated initially, it's a
+work in progress.
+
 # Installation
 
 To do a complete installation, follow the instructions in INSTALL (a virtual
 env should not strictly be necessary).
 
-For `isokbd.py` you should only need swig, tkinter and the alsa libaries and
-headers ("swig", "python3-tk" and "libasound2-dev" on debian-derivatives) and
-you can install like so:
+For `isokbd.py` and `midiedit.py` you should only need swig, tkinter and the
+alsa libaries and headers ("swig", "python3-tk" and "libasound2-dev" on
+debian-derivatives) and you can install like so:
 
     python3 setup.py build
     sudo python3 setup.py install
