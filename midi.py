@@ -462,6 +462,10 @@ class Track:
       self.__events.remove(event)
       self.add(event)
 
+   def remove(self, event):
+      """Remove the event from the track."""
+      self.__events.remove(event)
+
    def __getitem__(self, index):
       """
          Returns a tuple consisting of the absolute time of the event and the

@@ -23,11 +23,15 @@ ROW_HEIGHT = 10
 KEYS_WIDTH = 40
 
 DEFAULT_NOTE_WIDTH = 40
-NOTE_FILL_COLOR = '#ff0000'
+NOTE_FILL_COLOR = '#00ff00'
 POS_MARKER_COLOR = '#ff0000'
 
 NOTE_COLORS = [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0]
 GRID_LINE_COLOR = '#000044'
+
+# The outline color of notes.
+SELECT_OUTLINE = 'white'
+NORMAL_OUTLINE = 'black'
 
 class DragMode(Enum):
     NONE = 0    # Not dragging.
@@ -188,6 +192,7 @@ class MidiEditor(Frame):
                                            128 * ROW_HEIGHT
                                            )
                              )
+        self.__canvas.bind('<Delete>', self.__delete_selected)
 
         # Render the position line.
         if audio:
@@ -276,6 +281,32 @@ class MidiEditor(Frame):
     def __x_from_time(self, t: int) -> int:
         return int(t / self.__ticks_per_x_unit)
 
+    def __select_single(self, id: int) -> None:
+        """Select a single note, unselect current selections."""
+        self.__canvas.itemconfigure('selected', outline=NORMAL_OUTLINE)
+        self.__canvas.dtag('selected', 'selected')
+        self.__canvas.itemconfigure(id, tags=['selected'],
+                                    outline=SELECT_OUTLINE)
+
+
+    def __toggle_select(self, id: int) -> None:
+        """Toggle the selection status of a given element."""
+        tags = self.__canvas.gettags(id)
+        if 'selected' in tags:
+            self.__canvas.dtag(id, 'selected')
+            self.__canvas.itemconfigure(id, outline=NORMAL_OUTLINE)
+        else:
+            self.__canvas.itemconfigure(id, tags=['selected'],
+                                        outline=SELECT_OUTLINE)
+
+    def __delete_selected(self, event: Event):
+        """Delete all selected notes."""
+        for item in self.__canvas.find_withtag('selected'):
+            for midi_event in self.__note_map[item]:
+                self.__track.remove(midi_event)
+            del self.__note_map[item]
+            self.__canvas.delete(item)
+
     def __end_drag(self, id: int, event: Event) -> Optional[str]:
         self.__canvas.tag_unbind(id, '<Motion>')
         self.__canvas.tag_unbind(id, '<ButtonRelease-1>')
@@ -332,12 +363,20 @@ class MidiEditor(Frame):
         self.__audio.begin_note_edit(self.__note_from_y(cy), velocity=127)
 
     def __begin_drag_note(self, id: int, event: Event) -> Optional[str]:
+        self.__select_single(id)
         self.__begin_drag(id, event, DragMode.MOVE)
         return 'break'
 
     def __begin_duration_drag(self, id: int, event: Event) -> Optional[str]:
+        self.__select_single(id)
         self.__begin_drag(id, event, DragMode.EXTEND)
         return 'break'
+
+    def __toggle_select_handler(self, id: int, event: Event) -> None:
+        # We don't really have any meaningful "drag" semantics to this yet,
+        # but it still has a lot of the semmantics of a drag event.
+        self.__begin_drag(id, event, DragMode.NONE)
+        self.__toggle_select(id)
 
     def __draw_new_note(self, note: int, t1: int, t2: int) -> int:
         y = self.__y_from_note(note)
@@ -350,6 +389,9 @@ class MidiEditor(Frame):
                                )
         self.__canvas.tag_bind(id, '<Shift-Button-1>',
                                lambda e: self.__begin_duration_drag(id, e)
+                               )
+        self.__canvas.tag_bind(id, '<Control-Button-1>',
+                               lambda e: self.__toggle_select_handler(id, e)
                                )
         return id
 
@@ -368,6 +410,7 @@ class MidiEditor(Frame):
         self.__track.add(note_on)
         self.__track.add(note_off)
         self.__note_map[id] = [note_on, note_off]
+        self.__select_single(id)
 
     def __end_add_note(self, event: Event) -> None:
         self.__audio.end_note_edit()
