@@ -314,6 +314,14 @@ class MidiEditor(Frame):
             del self.__note_map[item]
             self.__canvas.delete(item)
 
+    def __get_x(self, event: Event) -> int:
+        """Returns the x coordinate for an event's screen y coordinate."""
+        return int(self.__canvas.canvasx(event.x))
+
+    def __get_y(self, event: Event) -> int:
+        """Returns the y coordinate for an event's screen y coordinate."""
+        return int(self.__canvas.canvasy(event.y))
+
     def __end_drag(self, id: int, event: Event) -> Optional[str]:
         self.__canvas.tag_unbind(id, '<Motion>')
         self.__canvas.tag_unbind(id, '<ButtonRelease-1>')
@@ -321,8 +329,8 @@ class MidiEditor(Frame):
 
         if self.__drag_mode == DragMode.MOVE:
             # Move the original events to the new time and note.
-            note = self.__note_from_y(event.y)
-            t = self.__time_from_x(event.x - self.__drag_offset[0])
+            note = self.__note_from_y(self.__get_y(event))
+            t = self.__time_from_x(self.__get_x(event) - self.__drag_offset[0])
             events = self.__note_map[id]
             start_time = events[0].time
             for event in events:
@@ -332,7 +340,7 @@ class MidiEditor(Frame):
                     event.time = t + event.time - start_time
                     self.__track.reposition(event)
         elif self.__drag_mode == DragMode.EXTEND:
-            length = event.x - self.__drag_org_x
+            length = self.__get_x(event) - self.__drag_org_x
             events = self.__note_map[id]
             events[1].time += self.__time_from_x(length)
             self.__track.reposition(events[1])
@@ -343,14 +351,14 @@ class MidiEditor(Frame):
 
     def __drag(self, id: int, event: Event) -> Optional[str]:
         if self.__drag_mode == DragMode.MOVE:
-            note = self.__note_from_y(event.y)
+            note = self.__note_from_y(self.__get_y(event))
             y = (127 - note) * ROW_HEIGHT
-            x = event.x - self.__drag_offset[0]
+            x = self.__get_x(event) - self.__drag_offset[0]
             x1, _, x2, _ = self.__canvas.coords(id)
             self.__canvas.coords(id, x, y, x + x2 - x1, y + ROW_HEIGHT)
             self.__audio.next_note_edit(note, velocity=127)
         elif self.__drag_mode == DragMode.EXTEND:
-            length = event.x - self.__drag_org_x
+            length = self.__get_x(event) - self.__drag_org_x
             x1, y1, x2, y2 = self.__canvas.coords(id)
             events = self.__note_map[id]
             org_len = self.__x_from_time(events[1].time - events[0].time)
@@ -359,8 +367,8 @@ class MidiEditor(Frame):
 
     def __begin_drag(self, id: int, event: Event, mode: DragMode) -> None:
         cx, cy, _, _ = self.__canvas.coords(id)
-        self.__drag_org_x = event.x
-        self.__drag_offset = (event.x - cx, event.y - cy)
+        self.__drag_org_x = self.__get_x(event)
+        self.__drag_offset = (self.__get_x(event) - cx, self.__get_y(event) - cy)
         self.__canvas.tag_bind(id, '<Motion>', lambda e: self.__drag(id, e))
         self.__canvas.tag_bind(id, '<ButtonRelease-1>',
                                lambda e: self.__end_drag(id, e)
@@ -408,8 +416,8 @@ class MidiEditor(Frame):
         if self.__drag_offset:
             return
 
-        note = self.__note_from_y(event.y)
-        t = self.__time_from_x(event.x)
+        note = self.__note_from_y(self.__get_y(event))
+        t = self.__time_from_x(self.__get_x(event))
         self.__audio.begin_note_edit(note, velocity=127)
         note_on = NoteOn(t, self.__channel, note, self.__velocity)
         note_off = NoteOff(t + self.__note_len, self.__channel, note, 0)
