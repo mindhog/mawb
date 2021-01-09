@@ -4,11 +4,15 @@ setup(
     ext_modules = [
         Extension("_alsa_midi", sources = ['alsa_midi.i'],
                   libraries = ['asound'],
+                  ),
+        Extension("_lilv", sources = ['lilv.i'],
+                  libraries = ['lilv-0'],
                   )
     ],
     py_modules = [
         'alsa_midi',
         'amidi',
+        'lilv',
         'midi',
     ],
     install_requires = [
