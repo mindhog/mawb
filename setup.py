@@ -14,6 +14,7 @@ setup(
         'amidi',
         'lilv',
         'midi',
+	'awb_client',
     ],
     install_requires = [
         'typing', # typing-3.6.6
