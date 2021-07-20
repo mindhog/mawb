@@ -2,9 +2,11 @@
 import abc
 from modes import MidiState
 from tkinter import Button, Entry, Frame, Label, Listbox, Menu, Menubutton, \
-    Text, Tk, Toplevel, BOTH, LEFT, NORMAL, NSEW, RAISED, W
+    Text, Tk, Toplevel, Widget, BOTH, LEFT, NORMAL, NSEW, RAISED, W
 from typing import Callable, List
-from awb_client import ACTIVE, NONEMPTY, RECORD, STICKY
+from awb_client import AWBClient, ACTIVE, NONEMPTY, RECORD, STICKY
+from midi import Event
+import time
 import traceback
 
 class Channel(Frame):
@@ -363,6 +365,89 @@ class EventMultiplexer:
         for handler in self.handlers:
             handler()
 
+class RecordingInfo:
+    """Tracks information on a recorded midi-macro."""
+
+    def __init__(self, name, events):
+        self.name = name
+        self.events = events
+
+    def __str__(self):
+        return self.name
+
+class EventRecorder:
+    def __init__(self, name: str, dispatcher: Callable[[Event], None]):
+        self.name = name
+        self.events = []
+        self.dispatcher = dispatcher
+
+        # __startTime is the time of the first event (seconds since the epoch).
+        self.__startTime : float = 0
+
+    def __call__(self, client: AWBClient, event: Event) -> None:
+        if self.__startTime:
+            event.time = client.getTicks(time.time() - self.__startTime)
+        else:
+            self.__startTime = time.time()
+            event.time = 0
+        self.events.append(event)
+        self.dispatcher(client, event)
+
+    def getRecordingInfo(self) -> RecordingInfo:
+        return RecordingInfo(self.name, self.events)
+
+class MidiRegisters(Toplevel):
+    """Window containing and controlling a set of midi registers.
+
+    This has to be a toplevel so it can have toplevel bindings.
+    """
+
+    STATUS_TEXT = 'Hit unbound key to record'
+
+    def __init__(self, client: AWBClient):
+        super().__init__()
+        self.client = client
+        self.__recorder : Optional[EventRecorder] = None
+        self.__registers : Dict[str, RecordingInfo] = {}
+        self.frame = Frame(self)
+        self.status = Label(self.frame, text=self.STATUS_TEXT)
+        self.status.pack()
+        self.list = Listbox(self.frame)
+        self.list.pack(expand=True, fill=BOTH)
+        lower_frame = Frame(self)
+        #self.entry = Entry(lower_frame)
+        #record = Button(lower_frame, text='Record', command=self.__add)
+        self.frame.grid(row = 0, column = 0, sticky=NSEW)
+        self.bind('<KeyPress>', self.__record)
+
+    def __record(self, event):
+        # play an existing register.
+        try:
+            events = self.__registers[event.keysym].events
+            self.client.scheduleMidiEvents(events)
+            return
+        except KeyError:
+            pass
+
+        # If the key we're recording was pressed again, end record.
+        if self.__recorder and self.__recorder.name == event.keysym:
+            trackInfo = self.__recorder.getRecordingInfo()
+            self.client.dispatchEvent = self.__recorder.dispatcher
+            self.__recorder = None
+            self.list.insert(len(self.__registers), str(trackInfo))
+            self.__registers[trackInfo.name] = trackInfo
+            self.status.configure(text=self.STATUS_TEXT)
+
+        # If we're not recording, start recording on that key.
+        elif not self.__recorder:
+            self.__recorder = EventRecorder(event.keysym,
+                                            self.client.dispatchEvent
+                                            )
+            self.status.configure(
+                text=f'Recording on {event.keysym}: press again to finish'
+            )
+            self.client.dispatchEvent = self.__recorder
+
 class MainWin(Tk):
 
     def __init__(self, client):
@@ -383,6 +468,7 @@ class MainWin(Tk):
         fileMenu.add_command(label='Save', command=self.__save)
         fileMenu.add_command(label='Load', command=self.__load)
         fileMenu.add_command(label='Plugins', command=self.__plugins)
+        fileMenu.add_command(label='Midi Registers', command=self.__registers)
         addButton['menu'] = fileMenu
 
         label = Label(self.frame, text = 'AWB')
@@ -442,6 +528,9 @@ class MainWin(Tk):
         top = Toplevel()
         plugins = Plugins(top, self.client)
         plugins.grid()
+
+    def __registers(self, *args):
+        top = MidiRegisters(self.client)
 
     def foo(self, event):
         print('got foo')

@@ -1,14 +1,18 @@
 
 import abc
 import amidi
+from collections.abc import Iterable
+from copy import copy
+from heapq import merge
 from importlib import import_module
 import jack
 import mawb_pb2
+from midi import Event
 import modes
 import os
 import pickle
-import threading
-from typing import IO, List, Optional
+from threading import Lock, Thread
+from typing import Generator, IO, List, Optional
 import select
 import time
 from comm import Comm
@@ -93,11 +97,24 @@ class AWBClient(object):
         self.state = None
         self.dispatchEvent = None
 
+        # Start of time (unix time of the start of the midi thread).
+        self.__startOfTime = 0
+
+        # Pending midi event queue.  These get processed in the midi in the
+        # midi input thread.
+        self.__queue : List[Event] = []
+        self.__queueLock = Lock()
+
         # {int: int}.  Maps channels to current status.
         self.__channels = dict((i, 0) for i in range(8))
 
         # channel subscribers (dict<int, list<callback<int, int>>>)
         self.__subs = {}
+
+        # beats-per-minute and pulses per beat parameters.
+        # TODO: share these with awbd.
+        self.__bpm = 60
+        self.__ppb = 512
 
         # Create a midi input port.
         self.midiIn = self.makeMidiInPort('in')
@@ -105,7 +122,7 @@ class AWBClient(object):
         # Start the proactor thread.  We do this after Comm() has been
         # created so there are connections to manage, otherwise the proactor
         # will just immediately terminate.
-        proactorThread = threading.Thread(target = getProactor().run)
+        proactorThread = Thread(target = getProactor().run)
         proactorThread.start()
 
         self.threadPipeRd, self.threadPipeWr = os.pipe()
@@ -125,7 +142,7 @@ class AWBClient(object):
 
         # Start the pedal handler thread.
         if self.pedal:
-            self.pedalThread = threading.Thread(target = self.handlePedal)
+            self.pedalThread = Thread(target = self.handlePedal)
             self.pedalThread.start()
 
         # Callbacks.
@@ -149,8 +166,9 @@ class AWBClient(object):
 
     def startMidiInputThread(self):
         # Start the midi input thread.
+        self.__startOfTime = time.time()
         self.midiInputControl = Pipe()
-        self.midiInputThread = threading.Thread(target = self.handleMidiInput)
+        self.midiInputThread = Thread(target = self.handleMidiInput)
         self.midiInputThread.start()
 
     def __convertToPortInfo(self, src):
@@ -414,14 +432,96 @@ class AWBClient(object):
                     self.endRecord(channel)
                     closedClean = True
 
+    def getTicks(self, seconds: Optional[float] = None) -> int:
+        """Returns the number of ticks corresponding to 'seconds', or since
+        the client's "start of time" if not provided.
+        """
+        if seconds is None:
+            seconds = time.time() - self.__startOfTime
+        return int(seconds * (self.__bpm / 60) * self.__ppb)
+
+    def __getSecs(self, ticks) -> float:
+        """Returns 'ticks' converted to time in seconds."""
+        return ticks / ((self.__bpm / 60) * self.__ppb)
+
+    def scheduleMidiEvent(self, event: Event):
+        """Schedule a midi event for playback.
+
+        The event time should be relative to now.  We will make a copy of the
+        event modified to absolute time.
+        """
+        return self.scheduleMidiEvents([event])
+
+    # TODO: replace string Iterable type when we get python 3.9.
+    def scheduleMidiEvents(self, events: 'Iterable[Event]'):
+        """Schedule a sequence of midi events for playback.
+
+        'events' _must be ordered by time._
+
+        The event times should be relative to now.  We will make a copy of the
+        events modified to absolute time.
+        """
+
+        t = self.getTicks()
+
+        def fixTime(events: 'Iterable[Event]') -> Generator[Event, None, None]:
+            for event in events:
+                e = copy(event)
+                e.time = t + e.time
+                yield e
+
+        with self.__queueLock:
+            self.__queue = list(merge(fixTime(events), self.__queue,
+                                      key=lambda e: e.time
+                                      )
+                                )
+
+        # Interrupt the midi input thread.
+        os.write(self.midiInputControl.write, b'i')
+
+    def __timeoutForNextEvent(self) -> Optional[float]:
+        """The queue lock must be held when calling this."""
+        if self.__queue:
+            t = time.time() - self.__startOfTime
+            next = self.__getSecs(self.__queue[0].time)
+            return 0 if next <= t else next - t
+        else:
+            return None
+
     def handleMidiInput(self):
+
+        # Get the timeout for the next event.
+        with self.__queueLock:
+            timeout = self.__timeoutForNextEvent()
+
         handle = self.seq.getPollHandle()
         while True:
             rdx, wrx, erx = select.select(
-                [handle, self.midiInputControl.read], [], []
+                [handle, self.midiInputControl.read], [], [], timeout
             )
+
+            # Terminate the midi handler if a message was sent to the control
+            # pipe.
             if self.midiInputControl.read in rdx:
-                break
+                action = os.read(self.midiInputControl.read, 1)
+                if action == b'q':
+                    break
+
+            # collect any events that are due to be dispatched.  (we can be a
+            # little sloppy here and check the queue for elements outside of
+            # the lock)
+            if self.__queue:
+                events = []
+                with self.__queueLock:
+                    t = self.getTicks()
+                    while self.__queue and t >= self.__queue[0].time:
+                        events.append(self.__queue.pop(0))
+
+                    timeout = self.__timeoutForNextEvent()
+
+                # Dispatch them.
+                for event in events:
+                    self.dispatchEvent(self, event)
 
             while self.seq.hasEvent():
                 event = self.seq.getEvent()
@@ -432,7 +532,7 @@ class AWBClient(object):
         self.comm.close()
         self.seq.close()
         if self.midiInputThread:
-            os.write(self.midiInputControl.write, b'end')
+            os.write(self.midiInputControl.write, b'q')
             self.midiInputThread.join()
         if self.pedal:
             os.write(self.threadPipeWr, 'end')
@@ -468,14 +568,14 @@ class AWBClient(object):
         self.setChannelSticky(channel, not self.__channels[channel] & STICKY)
 
     def makeNewProgram(self):
-        newProgram = self.state.clone() if self.state else modes.Program()
+        newProgram = self.state.clone() if self.state else modes.StateVec()
         self.voices.append(newProgram)
         self.state = newProgram
         if self.onProgramChange:
             self.onProgramChange()
 
     def makeProject(self):
-        self.state = modes.Program()
+        self.state = modes.StateVec()
         self.voices.append(self.state)
         if self.onProgramChange:
             self.onProgramChange()
