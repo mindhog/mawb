@@ -97,6 +97,16 @@ class AWBClient(object):
         self.state = None
         self.dispatchEvent = None
 
+        # List of input processors.
+        #
+        # Input processors are applied to events after they are received from
+        # the system but before they are dispatched.  They are free to mutate
+        # the event.
+        #
+        # An input processor that returns true terminates the input chain.  No
+        # further processors are called and the event is not dispatched.
+        self.inputProcessors : Callable[[AWBClient, Event], bool] = []
+
         # Start of time (unix time of the start of the midi thread).
         self.__startOfTime = 0
 
@@ -488,6 +498,12 @@ class AWBClient(object):
         else:
             return None
 
+    def __processInputEvent(self, event) -> bool:
+        for proc in self.inputProcessors:
+            if proc(self, event):
+                return False
+        return True
+
     def handleMidiInput(self):
 
         # Get the timeout for the next event.
@@ -525,7 +541,7 @@ class AWBClient(object):
 
             while self.seq.hasEvent():
                 event = self.seq.getEvent()
-                if self.dispatchEvent:
+                if self.__processInputEvent(event) and self.dispatchEvent:
                     self.dispatchEvent(self, event)
 
     def stop(self):

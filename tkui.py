@@ -376,22 +376,21 @@ class RecordingInfo:
         return self.name
 
 class EventRecorder:
-    def __init__(self, name: str, dispatcher: Callable[[Event], None]):
+    def __init__(self, name: str):
         self.name = name
         self.events = []
-        self.dispatcher = dispatcher
 
         # __startTime is the time of the first event (seconds since the epoch).
         self.__startTime : float = 0
 
-    def __call__(self, client: AWBClient, event: Event) -> None:
+    def __call__(self, client: AWBClient, event: Event) -> bool:
         if self.__startTime:
             event.time = client.getTicks(time.time() - self.__startTime)
         else:
             self.__startTime = time.time()
             event.time = 0
         self.events.append(event)
-        self.dispatcher(client, event)
+        return False
 
     def getRecordingInfo(self) -> RecordingInfo:
         return RecordingInfo(self.name, self.events)
@@ -432,7 +431,7 @@ class MidiRegisters(Toplevel):
         # If the key we're recording was pressed again, end record.
         if self.__recorder and self.__recorder.name == event.keysym:
             trackInfo = self.__recorder.getRecordingInfo()
-            self.client.dispatchEvent = self.__recorder.dispatcher
+            self.client.inputProcessors.remove(self.__recorder)
             self.__recorder = None
             self.list.insert(len(self.__registers), str(trackInfo))
             self.__registers[trackInfo.name] = trackInfo
@@ -440,13 +439,11 @@ class MidiRegisters(Toplevel):
 
         # If we're not recording, start recording on that key.
         elif not self.__recorder:
-            self.__recorder = EventRecorder(event.keysym,
-                                            self.client.dispatchEvent
-                                            )
+            self.__recorder = EventRecorder(event.keysym)
             self.status.configure(
                 text=f'Recording on {event.keysym}: press again to finish'
             )
-            self.client.dispatchEvent = self.__recorder
+            self.client.inputProcessors.append(self.__recorder)
 
 class MainWin(Tk):
 
