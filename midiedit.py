@@ -9,7 +9,7 @@ import time
 from alsa_midi import SND_SEQ_OPEN_OUTPUT, SND_SEQ_OPEN_INPUT
 from amidi import PortInfo, Sequencer
 from midi import AllSoundOff, ControlChange, Event as MIDIEvent, NoteOn, \
-    NoteOff, Piece, PitchWheel, ProgramChange, SetTempo, Track
+    NoteOff, Piece, PitchWheel, ProgramChange, SetTempo, Track, TrackCursor
 from midifile import Reader as MidiFileReader, Writer as MidiFileWriter
 from threading import Thread
 from typing import Callable, Optional, Tuple, Union
@@ -220,7 +220,9 @@ class MidiEditor(Frame):
             elif isinstance(note, NoteOff):
                 try:
                     start = active.pop(note.note)
-                    self.__draw_new_note(note.note, start.time, note.time)
+                    id = self.__draw_new_note(start.note, start.time,
+                                              note.time)
+                    self.__note_map[id] = [start, note]
                 except KeyError:
                     print('Unmatched end note: %s' % note.note)
 
@@ -534,7 +536,13 @@ class AlsaAudioIFace(AudioIFace):
 
             # 't' is current time in ticks.
             t = self.__pos
-            for event in self.__track:
+            cur = TrackCursor(self.__track)
+            cur.setPos(t)
+            while True:
+                event = cur.nextEvent()
+                if not event:
+                    return
+
                 # Wait for the next event, doing a notification callback
                 # periodically.
                 next_event_ticks = event.time
