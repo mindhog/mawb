@@ -33,8 +33,8 @@
 #
 #==============================================================================
 
-from midi import Event, SetTempo, SysEx, NoteOn, NoteOff, TrackCursor, \
-   StreamReader, Track, Piece
+from midi import ControlChange, Event, PitchWheel, SetTempo, SysEx, NoteOn, \
+   NoteOff, ProgramChange, TrackCursor, StreamReader, Track, Piece
 import six, string, struct
 from io import StringIO
 
