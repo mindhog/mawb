@@ -53,7 +53,7 @@ class Plugin(abc.ABC):
     def shutdown(self, client: 'AWBClient'):
         """Called during shutdown."""
 
-    def getUI(self, client: 'AWBClient') -> Optional['tkinter.Widget']:
+    def getUI(self, client: 'AWBClient' = None) -> Optional['tkinter.Widget']:
         """Returns a user interface for configuring the plugin.
 
         Returns None if the module has no configuration UI.
