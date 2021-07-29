@@ -1,10 +1,13 @@
 
 import abc
+from enum import Enum
+from heapq import merge
 from modes import MidiState
 from tkinter import Button, Entry, Frame, Label, Listbox, Menu, Menubutton, \
     Text, Tk, Toplevel, Widget, BOTH, LEFT, NORMAL, NSEW, RAISED, W
 from typing import Callable, List
-from awb_client import AWBClient, ACTIVE, NONEMPTY, RECORD, STICKY
+from awb_client import offsetEventTimes, AWBClient, CallableEvent, ACTIVE, \
+    NONEMPTY, RECORD, STICKY
 from midi import Event
 import time
 import traceback
@@ -395,6 +398,64 @@ class EventRecorder:
     def getRecordingInfo(self) -> RecordingInfo:
         return RecordingInfo(self.name, self.events)
 
+class LRState(Enum):
+    RECORD = 0
+    PLAYING = 1
+    IDLE = 2
+
+class LoopRegister:
+    """Stores a set of events as a loop.
+
+    The loop register has three states: recording, playing and idle.  It
+    transitions from recording to playing and then from playing to idle and
+    then from idle to playing, which works well for a single button control.
+    """
+
+    def __init__(self, client: AWBClient):
+        self.__client = client
+        self.__events = []
+        self.__state = LRState.RECORD
+        self.__start : Optional[int] = None
+
+    def nextState(self):
+        def reschedule(client: AWBClient):
+            if self.__state == LRState.PLAYING:
+                self.__client.scheduleMidiEvents(self.__events)
+
+        if self.__state == LRState.RECORD:
+            t = self.__client.getTicks() - self.__start
+            self.__events.append(CallableEvent(t, reschedule))
+            self.__state = LRState.PLAYING
+            reschedule(self.__events)
+        elif self.__state == LRState.PLAYING:
+            self.__state = LRState.IDLE
+        elif self.__state == LRState.IDLE:
+            self.__state = LRState.PLAYING
+            reschedule(self.__events)
+
+    def addEvents(self, events):
+        # Ignore events added when not recording.
+        if not self.__state == LRState.RECORD:
+            return
+
+        # Record the start time if there is none, otherwise use it to
+        # calculate the loop-relative time.
+        if self.__start is None:
+            self.__start = self.__client.getTicks()
+            t = 0
+        else:
+            t = self.__client.getTicks() - self.__start
+        self.__events = list(merge(offsetEventTimes(events, t),
+                                   self.__events,
+                                   key=lambda e: e.time
+                                   )
+                             )
+
+    @property
+    def state(self):
+        return self.__state
+
+
 class MidiRegisters(Toplevel):
     """Window containing and controlling a set of midi registers.
 
@@ -408,22 +469,49 @@ class MidiRegisters(Toplevel):
         self.client = client
         self.__recorder : Optional[EventRecorder] = None
         self.__registers : Dict[str, RecordingInfo] = {}
+        self.__loop : Optional[LoopRegister] = None
         self.frame = Frame(self)
         self.status = Label(self.frame, text=self.STATUS_TEXT)
         self.status.pack()
         self.list = Listbox(self.frame)
         self.list.pack(expand=True, fill=BOTH)
+
+        self.__loopStat = Label(self.frame, text='Loop 1: EMPTY')
+        self.__loopStat.pack()
+
         lower_frame = Frame(self)
         #self.entry = Entry(lower_frame)
         #record = Button(lower_frame, text='Record', command=self.__add)
         self.frame.grid(row = 0, column = 0, sticky=NSEW)
-        self.bind('<KeyPress>', self.__record)
+        self.bind('<KeyPress>', self.__keypress)
 
-    def __record(self, event):
+
+    def __keypress(self, event):
+        print(f'keysym is {event.keysym}')
+
+        # Check for special keys.
+        if len(event.keysym) > 1:
+            if event.keysym == 'Delete':
+                sel = self.list.curselection()
+                if sel:
+                    key = self.list.get(sel[0])
+                    del self.__registers[key]
+                    self.list.delete(sel[0])
+            elif event.keysym == 'F1':
+                if self.__loop:
+                    self.__loop.nextState()
+                    self.__loopStat.configure(
+                        text=f'Loop 1: {self.__loop.state}')
+                else:
+                    self.__loop = LoopRegister(self.client)
+            return
+
         # play an existing register.
         try:
             events = self.__registers[event.keysym].events
             self.client.scheduleMidiEvents(events)
+            if self.__loop:
+                self.__loop.addEvents(events)
             return
         except KeyError:
             pass

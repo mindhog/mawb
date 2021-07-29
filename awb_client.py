@@ -12,7 +12,7 @@ import modes
 import os
 import pickle
 from threading import Lock, Thread
-from typing import Generator, IO, List, Optional
+from typing import Any, Callable, Generator, IO, List, Optional
 import select
 import time
 from comm import Comm
@@ -63,6 +63,39 @@ class Plugin(abc.ABC):
     @abc.abstractmethod
     def __str__(self) -> str:
         return None
+
+class VirtualEvent(Event):
+    """A non-midi event that can be scheduled as a midi event.
+
+    Virtual events allow us to schedule arbitrary actions.  It would be
+    cleaner to make all schedulable actions more uniform (then we wouldn't
+    have to do a special check for VirtualEvent) but since we're doing all
+    scheduling in terms of midi time and most commonly storing midi events,
+    it seems more expedient to just abuse the midi event.
+    """
+
+    @abc.abstractmethod
+    def __call__(self, client: 'AWBClient'):
+        """Method that will be called at the event time."""
+
+class CallableEvent(VirtualEvent):
+    """A non-abstract VirtualEvent that wraps a callable."""
+
+    def __init__(self, time: int, callable: Callable[['AWBClient'], Any]):
+        super().__init__(time)
+        self.__callable = callable
+
+    def __call__(self, client: 'AWBClient'):
+        self.__callable(client)
+
+def offsetEventTimes(events: 'Iterable[Event]', t: int
+                     ) -> Generator[Event, None, None]:
+    """Generator that copies 'events' and adds 't' (time in tics) to each one.
+    """
+    for event in events:
+        e = copy(event)
+        e.time = t + e.time
+        yield e
 
 class AWBClient(object):
     """AWB Client hub.
@@ -474,14 +507,9 @@ class AWBClient(object):
 
         t = self.getTicks()
 
-        def fixTime(events: 'Iterable[Event]') -> Generator[Event, None, None]:
-            for event in events:
-                e = copy(event)
-                e.time = t + e.time
-                yield e
-
         with self.__queueLock:
-            self.__queue = list(merge(fixTime(events), self.__queue,
+            self.__queue = list(merge(offsetEventTimes(events, t),
+                                      self.__queue,
                                       key=lambda e: e.time
                                       )
                                 )
@@ -537,7 +565,10 @@ class AWBClient(object):
 
                 # Dispatch them.
                 for event in events:
-                    self.dispatchEvent(self, event)
+                    if isinstance(event, VirtualEvent):
+                        event(self)
+                    else:
+                        self.dispatchEvent(self, event)
 
             while self.seq.hasEvent():
                 event = self.seq.getEvent()
