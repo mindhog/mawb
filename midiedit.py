@@ -16,8 +16,6 @@ from typing import Callable, Optional, Tuple, Union
 from tkinter import Canvas, Event, Frame, Label, Scrollbar, Tk, Toplevel, \
     PhotoImage, BOTH, HORIZONTAL, VERTICAL, NSEW
 
-IMAGE = 'test.png'
-
 ROW_HEIGHT = 10
 
 ## Width of the key panel on the left hand side.
@@ -472,11 +470,6 @@ class MidiEditor(Frame):
             self.__audio.play(self.__track)
 
     def __draw_canvas(self) -> None:
-#        photo_image = PhotoImage(file = IMAGE)
-#        background_label = Label(self, image=photo_image)
-#        background_label.place(x=0, y=0, relwidth=1, relheight=1)
-#        self.__canvas.place(x=0, y=0, relwidth=1, relheight=1)
-
         # draw the grid.
         for i in range(0, 128):
             y = i * ROW_HEIGHT
