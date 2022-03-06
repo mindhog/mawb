@@ -10,4 +10,6 @@ jawbd
 *.awb
 alsa_midi.py
 alsa_midi_wrap.c
+alsa_mixer.py
+alsa_mixer_wrap.c
 build
