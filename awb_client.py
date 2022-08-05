@@ -1,12 +1,18 @@
 
+import abc
 import amidi
+from collections.abc import Iterable
+from copy import copy
+from heapq import merge
+from importlib import import_module
 import jack
 import mawb_pb2
+from midi import Event
 import modes
 import os
 import pickle
-import threading
-from typing import IO, List
+from threading import Lock, Thread
+from typing import Any, Callable, Generator, IO, List, Optional
 import select
 import time
 from comm import Comm
@@ -29,8 +35,67 @@ class AWBClientState:
     We create one of these for writing the client state.
     """
 
-    def __init__(self, voices: List[modes.StateVec]):
+    def __init__(self, voices: List[modes.StateVec], plugins: List['Plugin']):
         self.voices = voices
+        self.plugins = plugins
+
+class Plugin(abc.ABC):
+    """An AWB module.
+
+    Plugins are classes that implement this interface.  They are used to
+    extend the functionality of MAWB.  There are default versions of all of
+    the methods, all of which do nothing.
+    """
+
+    def init(self, client: 'AWBClient'):
+        """Called during initialization."""
+
+    def shutdown(self, client: 'AWBClient'):
+        """Called during shutdown."""
+
+    def getUI(self, client: 'AWBClient' = None) -> Optional['tkinter.Widget']:
+        """Returns a user interface for configuring the plugin.
+
+        Returns None if the module has no configuration UI.
+        """
+        return None
+
+    @abc.abstractmethod
+    def __str__(self) -> str:
+        return None
+
+class VirtualEvent(Event):
+    """A non-midi event that can be scheduled as a midi event.
+
+    Virtual events allow us to schedule arbitrary actions.  It would be
+    cleaner to make all schedulable actions more uniform (then we wouldn't
+    have to do a special check for VirtualEvent) but since we're doing all
+    scheduling in terms of midi time and most commonly storing midi events,
+    it seems more expedient to just abuse the midi event.
+    """
+
+    @abc.abstractmethod
+    def __call__(self, client: 'AWBClient'):
+        """Method that will be called at the event time."""
+
+class CallableEvent(VirtualEvent):
+    """A non-abstract VirtualEvent that wraps a callable."""
+
+    def __init__(self, time: int, callable: Callable[['AWBClient'], Any]):
+        super().__init__(time)
+        self.__callable = callable
+
+    def __call__(self, client: 'AWBClient'):
+        self.__callable(client)
+
+def offsetEventTimes(events: 'Iterable[Event]', t: int
+                     ) -> Generator[Event, None, None]:
+    """Generator that copies 'events' and adds 't' (time in tics) to each one.
+    """
+    for event in events:
+        e = copy(event)
+        e.time = t + e.time
+        yield e
 
 class AWBClient(object):
     """AWB Client hub.
@@ -43,6 +108,7 @@ class AWBClient(object):
         seq: [amidi.Sequencer] The sequencer.
         voices: [list<modes.StateVec>] The state vector map, should be one
             per channel.
+        plugins: [list<Plugin>] The list of active plugins for the client.
         state: [modes.StateVec] The current state vector.
         dispatchEvent: [callable<AWBClient, midi.Event>] A user function to
             manage event processing.
@@ -60,8 +126,27 @@ class AWBClient(object):
         self.sectionIndex = 0
         self.sectionCount = 1
         self.voices = []
+        self.plugins = []  # type: List[Plugin]
         self.state = None
         self.dispatchEvent = None
+
+        # List of input processors.
+        #
+        # Input processors are applied to events after they are received from
+        # the system but before they are dispatched.  They are free to mutate
+        # the event.
+        #
+        # An input processor that returns true terminates the input chain.  No
+        # further processors are called and the event is not dispatched.
+        self.inputProcessors : Callable[[AWBClient, Event], bool] = []
+
+        # Start of time (unix time of the start of the midi thread).
+        self.__startOfTime = 0
+
+        # Pending midi event queue.  These get processed in the midi in the
+        # midi input thread.
+        self.__queue : List[Event] = []
+        self.__queueLock = Lock()
 
         # {int: int}.  Maps channels to current status.
         self.__channels = dict((i, 0) for i in range(8))
@@ -69,13 +154,18 @@ class AWBClient(object):
         # channel subscribers (dict<int, list<callback<int, int>>>)
         self.__subs = {}
 
+        # beats-per-minute and pulses per beat parameters.
+        # TODO: share these with awbd.
+        self.__bpm = 60
+        self.__ppb = 512
+
         # Create a midi input port.
         self.midiIn = self.makeMidiInPort('in')
 
         # Start the proactor thread.  We do this after Comm() has been
         # created so there are connections to manage, otherwise the proactor
         # will just immediately terminate.
-        proactorThread = threading.Thread(target = getProactor().run)
+        proactorThread = Thread(target = getProactor().run)
         proactorThread.start()
 
         self.threadPipeRd, self.threadPipeWr = os.pipe()
@@ -95,7 +185,7 @@ class AWBClient(object):
 
         # Start the pedal handler thread.
         if self.pedal:
-            self.pedalThread = threading.Thread(target = self.handlePedal)
+            self.pedalThread = Thread(target = self.handlePedal)
             self.pedalThread.start()
 
         # Callbacks.
@@ -105,6 +195,28 @@ class AWBClient(object):
         # Start the midi input thread.
         self.midiInputControl = Pipe()
         self.midiInputThread = threading.Thread(target = self.handleMidiInput)
+
+    def init(self):
+        """Initialize the current client.
+
+        This initializes all plugins and sets the current state.
+        """
+        # Initialize all of the plugins.
+        for plugin in self.plugins:
+            plugin.init(self);
+
+        self.state.activate()
+
+    def shutdown(self):
+        """Shutdown the current client (shuts down all plugins)."""
+        for plugin in self.plugins:
+            plugin.shutdown(self)
+
+    def startMidiInputThread(self):
+        # Start the midi input thread.
+        self.__startOfTime = time.time()
+        self.midiInputControl = Pipe()
+        self.midiInputThread = Thread(target = self.handleMidiInput)
         self.midiInputThread.start()
 
     def __convertToPortInfo(self, src):
@@ -382,11 +494,111 @@ class AWBClient(object):
                 if self.dispatchEvent:
                     self.dispatchEvent(self, event)
 
+    def getTicks(self, seconds: Optional[float] = None) -> int:
+        """Returns the number of ticks corresponding to 'seconds', or since
+        the client's "start of time" if not provided.
+        """
+        if seconds is None:
+            seconds = time.time() - self.__startOfTime
+        return int(seconds * (self.__bpm / 60) * self.__ppb)
+
+    def __getSecs(self, ticks) -> float:
+        """Returns 'ticks' converted to time in seconds."""
+        return ticks / ((self.__bpm / 60) * self.__ppb)
+
+    def scheduleMidiEvent(self, event: Event):
+        """Schedule a midi event for playback.
+
+        The event time should be relative to now.  We will make a copy of the
+        event modified to absolute time.
+        """
+        return self.scheduleMidiEvents([event])
+
+    # TODO: replace string Iterable type when we get python 3.9.
+    def scheduleMidiEvents(self, events: 'Iterable[Event]'):
+        """Schedule a sequence of midi events for playback.
+
+        'events' _must be ordered by time._
+
+        The event times should be relative to now.  We will make a copy of the
+        events modified to absolute time.
+        """
+
+        t = self.getTicks()
+
+        with self.__queueLock:
+            self.__queue = list(merge(offsetEventTimes(events, t),
+                                      self.__queue,
+                                      key=lambda e: e.time
+                                      )
+                                )
+
+        # Interrupt the midi input thread.
+        os.write(self.midiInputControl.write, b'i')
+
+    def __timeoutForNextEvent(self) -> Optional[float]:
+        """The queue lock must be held when calling this."""
+        if self.__queue:
+            t = time.time() - self.__startOfTime
+            next = self.__getSecs(self.__queue[0].time)
+            return 0 if next <= t else next - t
+        else:
+            return None
+
+    def __processInputEvent(self, event) -> bool:
+        for proc in self.inputProcessors:
+            if proc(self, event):
+                return False
+        return True
+
+    def handleMidiInput(self):
+
+        # Get the timeout for the next event.
+        with self.__queueLock:
+            timeout = self.__timeoutForNextEvent()
+
+        handle = self.seq.getPollHandle()
+        while True:
+            rdx, wrx, erx = select.select(
+                [handle, self.midiInputControl.read], [], [], timeout
+            )
+
+            # Terminate the midi handler if a message was sent to the control
+            # pipe.
+            if self.midiInputControl.read in rdx:
+                action = os.read(self.midiInputControl.read, 1)
+                if action == b'q':
+                    break
+
+            # collect any events that are due to be dispatched.  (we can be a
+            # little sloppy here and check the queue for elements outside of
+            # the lock)
+            if self.__queue:
+                events = []
+                with self.__queueLock:
+                    t = self.getTicks()
+                    while self.__queue and t >= self.__queue[0].time:
+                        events.append(self.__queue.pop(0))
+
+                    timeout = self.__timeoutForNextEvent()
+
+                # Dispatch them.
+                for event in events:
+                    if isinstance(event, VirtualEvent):
+                        event(self)
+                    else:
+                        self.dispatchEvent(self, event)
+
+            while self.seq.hasEvent():
+                event = self.seq.getEvent()
+                if self.__processInputEvent(event) and self.dispatchEvent:
+                    self.dispatchEvent(self, event)
+
     def stop(self):
         self.comm.close()
         self.seq.close()
         if self.midiInputThread:
-            os.write(self.midiInputControl.write, b'end')
+            os.write(self.midiInputControl.write, b'q')
             self.midiInputThread.join()
         if self.pedal:
             os.write(self.threadPipeWr, 'end')
@@ -422,24 +634,49 @@ class AWBClient(object):
         self.setChannelSticky(channel, not self.__channels[channel] & STICKY)
 
     def makeNewProgram(self):
-        newProgram = self.state.clone() if self.state else modes.Program()
+        newProgram = self.state.clone() if self.state else modes.StateVec()
         self.voices.append(newProgram)
         self.state = newProgram
         if self.onProgramChange:
             self.onProgramChange()
 
     def makeProject(self):
-        self.state = modes.Program()
+        self.state = modes.StateVec()
         self.voices.append(self.state)
         if self.onProgramChange:
             self.onProgramChange()
 
     def writeTo(self, out: IO[bytes]):
         """Write the client state to the output stream."""
-        state = AWBClientState(self.voices)
+        state = AWBClientState(self.voices, self.plugins)
         pickle.dump(state, out)
 
     def readFrom(self, src: IO[bytes]):
         """Read the client state from the input stream."""
         state = pickle.load(src)
         self.voices = state.voices
+        self.plugins = state.plugins
+        for plugin in self.plugins:
+            plugin.init(self)
+
+    def getPlugins(self) -> List[Plugin]:
+        """Returns the list of active, loaded plugins."""
+        return self.plugins
+
+    def listPlugins(self) -> List[str]:
+        """Returns a list of the names of all available plugins."""
+        # TODO: maybe search sys.path for the first (or all) of the plugins
+        # directories?
+        return [file[:-3] for file in os.listdir('plugins')
+                if file.endswith('.py')]
+
+    def loadPlugin(self, name: str):
+        mod = import_module('plugins.' + name)
+        pluginClass = getattr(mod, 'Plugin', None)
+        if pluginClass:
+            plugin = pluginClass()
+            plugin.init(self)
+            self.plugins.append(plugin)
+            return plugin
+        else:
+            raise Exception('No plugin class found in %s' % name)

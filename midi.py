@@ -298,7 +298,7 @@ class SysEx(Event):
    def __str__(self):
       val = ''
       for c in self.data:
-         val = val + ' %0x' % ord(c)
+         val = val + ' %0x' % c
       return 'SysEx: %s' % val
 
    def __repr__(self):
@@ -325,6 +325,36 @@ class SysContinue(SysRealtime):
 
 class SysStop(SysRealtime):
    _code = 0xFC
+
+# Meta-events.
+
+class SetTempo(Event):
+
+   def __init__(self, time: int, tempo: int):
+      super(SetTempo, self).__init__(time)
+      self.tempo : int = tempo
+
+   def asMidiString(self, status):
+      return 0xFF, struct.unpack(b'BBBBB', 0xFF, 3, self.tempo >> 16,
+                                 (self.tempo >> 8) & 0xff,
+                                 self.tempo & 0xff
+                                 )
+
+   def __str__(self):
+      return f'SetTempo: {self.time} {self.tempo}us/beat'
+
+   def __repr__(self):
+      return f'SetTempo({self.time}, {self.tempo})'
+
+class AllSoundOff(ControlChange):
+
+   def __init__(self, time: int, channel: int):
+      super(AllSoundOff, self).__init__(time, channel, 120, 0)
+
+class AllNotesOff(ControlChange):
+
+   def __init__(self, time: int, channel: int):
+      super(AllNotesOff, self).__init__(time, channel, 123, 0)
 
 # XXX Still need the following classes:
 #     AfterTouch
@@ -398,7 +428,7 @@ class Track:
          A track name must be unique within the piece.
    """
       
-   def __init__(self, name = "", events = []):
+   def __init__(self, name = "", events = [], ppqn = 24):
       """
          /events/ may be used to construct a track with a prefilled
          event list, but the constructor _does not attempt to guarantee
@@ -407,6 +437,7 @@ class Track:
       # __events is a list of Event objects
       self.__events = events
       self.name = name
+      self.ppqn = ppqn
    
    def add(self, event):
       """
@@ -425,6 +456,15 @@ class Track:
                self.__events.insert(i, event)
                break
             i = i + 1
+
+   def reposition(self, event):
+      """Move 'event' to the correct position based on its time."""
+      self.__events.remove(event)
+      self.add(event)
+
+   def remove(self, event):
+      """Remove the event from the track."""
+      self.__events.remove(event)
 
    def __getitem__(self, index):
       """

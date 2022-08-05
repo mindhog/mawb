@@ -1,12 +1,17 @@
 
 import abc
+from enum import Enum
+from heapq import merge
+from midi import Event
 from modes import MidiState
 from tkinter import Button, Entry, Frame, Label, Listbox, Menu, Menubutton, \
-    Text, Tk, Toplevel, BOTH, LEFT, NORMAL, NSEW, RAISED, W
+    Text, Tk, Toplevel, Widget, BOTH, LEFT, NORMAL, NSEW, RAISED, W
 from typing import Callable, List
 from awb_client import ACTIVE, NONEMPTY, RECORD, STICKY
-from commands import ProgramCommands, ScriptInterpreter
-from modes import Program
+from awb_client import offsetEventTimes, AWBClient, CallableEvent, ACTIVE, \
+    NONEMPTY, RECORD, STICKY
+from commands import Program, ProgramCommands, ScriptInterpreter
+import time
 import traceback
 
 class Channel(Frame):
@@ -365,6 +370,171 @@ class EventMultiplexer:
         for handler in self.handlers:
             handler()
 
+class RecordingInfo:
+    """Tracks information on a recorded midi-macro."""
+
+    def __init__(self, name, events):
+        self.name = name
+        self.events = events
+
+    def __str__(self):
+        return self.name
+
+class EventRecorder:
+    def __init__(self, name: str):
+        self.name = name
+        self.events = []
+
+        # __startTime is the time of the first event (seconds since the epoch).
+        self.__startTime : float = 0
+
+    def __call__(self, client: AWBClient, event: Event) -> bool:
+        if self.__startTime:
+            event.time = client.getTicks(time.time() - self.__startTime)
+        else:
+            self.__startTime = time.time()
+            event.time = 0
+        self.events.append(event)
+        return False
+
+    def getRecordingInfo(self) -> RecordingInfo:
+        return RecordingInfo(self.name, self.events)
+
+class LRState(Enum):
+    RECORD = 0
+    PLAYING = 1
+    IDLE = 2
+
+class LoopRegister:
+    """Stores a set of events as a loop.
+
+    The loop register has three states: recording, playing and idle.  It
+    transitions from recording to playing and then from playing to idle and
+    then from idle to playing, which works well for a single button control.
+    """
+
+    def __init__(self, client: AWBClient):
+        self.__client = client
+        self.__events = []
+        self.__state = LRState.RECORD
+        self.__start : Optional[int] = None
+
+    def nextState(self):
+        def reschedule(client: AWBClient):
+            if self.__state == LRState.PLAYING:
+                self.__client.scheduleMidiEvents(self.__events)
+
+        if self.__state == LRState.RECORD:
+            t = self.__client.getTicks() - self.__start
+            self.__events.append(CallableEvent(t, reschedule))
+            self.__state = LRState.PLAYING
+            reschedule(self.__events)
+        elif self.__state == LRState.PLAYING:
+            self.__state = LRState.IDLE
+        elif self.__state == LRState.IDLE:
+            self.__state = LRState.PLAYING
+            reschedule(self.__events)
+
+    def addEvents(self, events):
+        # Ignore events added when not recording.
+        if not self.__state == LRState.RECORD:
+            return
+
+        # Record the start time if there is none, otherwise use it to
+        # calculate the loop-relative time.
+        if self.__start is None:
+            self.__start = self.__client.getTicks()
+            t = 0
+        else:
+            t = self.__client.getTicks() - self.__start
+        self.__events = list(merge(offsetEventTimes(events, t),
+                                   self.__events,
+                                   key=lambda e: e.time
+                                   )
+                             )
+
+    @property
+    def state(self):
+        return self.__state
+
+
+class MidiRegisters(Toplevel):
+    """Window containing and controlling a set of midi registers.
+
+    This has to be a toplevel so it can have toplevel bindings.
+    """
+
+    STATUS_TEXT = 'Hit unbound key to record'
+
+    def __init__(self, client: AWBClient):
+        super().__init__()
+        self.client = client
+        self.__recorder : Optional[EventRecorder] = None
+        self.__registers : Dict[str, RecordingInfo] = {}
+        self.__loop : Optional[LoopRegister] = None
+        self.frame = Frame(self)
+        self.status = Label(self.frame, text=self.STATUS_TEXT)
+        self.status.pack()
+        self.list = Listbox(self.frame)
+        self.list.pack(expand=True, fill=BOTH)
+
+        self.__loopStat = Label(self.frame, text='Loop 1: EMPTY')
+        self.__loopStat.pack()
+
+        lower_frame = Frame(self)
+        #self.entry = Entry(lower_frame)
+        #record = Button(lower_frame, text='Record', command=self.__add)
+        self.frame.grid(row = 0, column = 0, sticky=NSEW)
+        self.bind('<KeyPress>', self.__keypress)
+
+
+    def __keypress(self, event):
+        print(f'keysym is {event.keysym}')
+
+        # Check for special keys.
+        if len(event.keysym) > 1:
+            if event.keysym == 'Delete':
+                sel = self.list.curselection()
+                if sel:
+                    key = self.list.get(sel[0])
+                    del self.__registers[key]
+                    self.list.delete(sel[0])
+            elif event.keysym == 'F1':
+                if self.__loop:
+                    self.__loop.nextState()
+                    self.__loopStat.configure(
+                        text=f'Loop 1: {self.__loop.state}')
+                else:
+                    self.__loop = LoopRegister(self.client)
+            return
+
+        # play an existing register.
+        try:
+            events = self.__registers[event.keysym].events
+            self.client.scheduleMidiEvents(events)
+            if self.__loop:
+                self.__loop.addEvents(events)
+            return
+        except KeyError:
+            pass
+
+        # If the key we're recording was pressed again, end record.
+        if self.__recorder and self.__recorder.name == event.keysym:
+            trackInfo = self.__recorder.getRecordingInfo()
+            self.client.inputProcessors.remove(self.__recorder)
+            self.__recorder = None
+            self.list.insert(len(self.__registers), str(trackInfo))
+            self.__registers[trackInfo.name] = trackInfo
+            self.status.configure(text=self.STATUS_TEXT)
+
+        # If we're not recording, start recording on that key.
+        elif not self.__recorder:
+            self.__recorder = EventRecorder(event.keysym)
+            self.status.configure(
+                text=f'Recording on {event.keysym}: press again to finish'
+            )
+            self.client.inputProcessors.append(self.__recorder)
+
 class MainWin(Tk):
 
     def __init__(self, client):
@@ -393,11 +563,15 @@ class MainWin(Tk):
         self.program.grid(row = nextRow(), column = 0, columnspan = 2,
                           sticky = W)
 
+        fileMenu.add_command(label='Plugins', command=self.__plugins)
+        fileMenu.add_command(label='Midi Registers', command=self.__registers)
+        addButton['menu'] = fileMenu
+
         label = Label(self.frame, text = 'AWB')
         label.grid(row = nextRow(), column = 0)
 
         self.recordMode = Button(self.frame, text = 'P',
-                                 command = self.toggleRecord)
+                                 command = lambda e: self.toggleRecord())
         modeRow = nextRow()
         self.recordMode.grid(row = modeRow, column = 0, sticky = W)
         self.status = Label(self.frame, text = 'Idle')
@@ -418,7 +592,9 @@ class MainWin(Tk):
         self.bind('K', self.clearAllState)
         self.protocol('WM_DELETE_WINDOW', self.destroy)
 
+        # F1 key brings the main panel to the foreground
         self.bind('<F1>', lambda evt: self.frame.tkraise())
+        # F2 brings the Program panel to the foreground.
         self.bind('<F2>', lambda evt: self.programPanel.tkraise())
 
         for i in range(0, 8):
@@ -450,6 +626,14 @@ class MainWin(Tk):
     def __load(self, *args):
         # TODO: display a file selector.
         self.client.readFrom(open('noname.mawb', 'rb'))
+
+    def __plugins(self, *args):
+        top = Toplevel()
+        plugins = Plugins(top, self.client)
+        plugins.grid()
+
+    def __registers(self, *args):
+        top = MidiRegisters(self.client)
 
     def foo(self, event):
         print('got foo')
@@ -732,6 +916,64 @@ class ProgramPanel(Frame):
 
     def setInfo(self, infoText: str):
         self.info.configure(text = infoText)
+
+#class PluginFrame(Frame):
+#    """Wraps and manages a plugin config UI."""
+#
+#    def __init__(self,
+
+class Plugins(Frame):
+    """The plugins manager window.
+
+    Lets you add and remove plugins.
+    """
+
+    def __init__(self, parent: 'Widget', client: 'AWBClient', **kwargs):
+        super(Plugins, self).__init__(parent)
+
+        self.__client = client
+
+        # Listboxes of current and available plugins.
+        label = Label(self, text='Installed')
+        label.grid(row=0, column=0)
+        label = Label(self, text='Available')
+        label.grid(row=0, column=1)
+        self.__currentList = Listbox(self)
+        self.__currentList.grid(row=1, column=0, sticky=NSEW)
+        self.__availList = Listbox(self)
+        self.__availList.grid(row=1, column=1, sticky=NSEW)
+
+        buttons = Frame(self)
+        button = Button(buttons, text='Add', command=self.__add)
+        button.pack(side=LEFT)
+        button = Button(buttons, text='Delete')
+        button.pack(side=LEFT)
+        button = Button(buttons, text='Edit')
+        button.pack(side=LEFT)
+        buttons.grid(row=2, column=0, columnspan=2, sticky=W)
+
+        # Populate the list from the client.
+        for plugin in client.listPlugins():
+            self.__availList.insert('end', plugin)
+
+        # Populate the list of loaded plugins from the client.
+        for plugin in client.getPlugins():
+            self.__currentList.insert('end', str(plugin))
+
+    def __add(self, *args):
+        sel = self.__availList.curselection()
+        if len(sel) != 1:
+            return
+        plugin = self.__client.loadPlugin(self.__availList.get(sel[0]))
+        ui = plugin.getUI()
+        if ui:
+            # TODO: replace Toplevel with PluginFrame above.  When the frame
+            # is dismissed, we'll want to add the plugin to our list like
+            # below.
+            ui.create(Toplevel())
+        else:
+            self.__currentList.insert('end', str(plugin))
+
 
 def runTkUi(client):
     mainwin = MainWin(client)

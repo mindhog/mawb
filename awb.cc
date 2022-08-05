@@ -377,6 +377,23 @@ class Listener : public Reactable {
         }
 };
 
+/**
+ * A streambuf that just discards all of its input.
+ */
+class NullStreambuf : public streambuf {
+    virtual int overflow(int c = EOF) {
+        return !EOF;
+    }
+
+    virtual int sync() {
+        return EOF;
+    }
+
+    virtual int underflow() {
+        return EOF;
+    }
+};
+
 int main(int argc, const char **argv) {
     // Making this live outside of the try catch because I haven't figured
     // out how to shut it down cleanly during an exception.
@@ -384,10 +401,15 @@ int main(int argc, const char **argv) {
 
     bool enablePedal = false;
     for (int i = 1; i < argc; ++i) {
-        if (!strcmp(argv[i], "-p"))
+        if (!strcmp(argv[i], "-p")) {
             enablePedal = true;
-        else
+        } else if (!strcmp(argv[i], "-q")) {
+            // Make cout and cerr inert.
+            cerr.rdbuf(new NullStreambuf());
+            cout.rdbuf(new NullStreambuf());
+        } else {
             cerr << "Unknown argument: " << argv[i] << endl;
+        }
     }
 
     try {

@@ -156,13 +156,13 @@ class Routing(SubState):
     destination ports.
     """
 
-    def __init__(self, *routes):
+    def __init__(self, *routes: Route):
         """Constructor.
 
         args:
-            *routes: [list(Route)] A list of routes.
+            *routes: A list of routes.
         """
-        self.routes = routes
+        self.routes = list(routes)
 
     def __eq__(self, other):
         return self is other or \
