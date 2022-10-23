@@ -1,4 +1,6 @@
 
+syntax = "proto2";
+
 package mawb;
 
 message InputDisp {
