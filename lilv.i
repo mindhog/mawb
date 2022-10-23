@@ -41,4 +41,6 @@
     $result = r;
 }
 
+%ignore lilv_plugin_get_num_ports_of_class_va;
+
 %include "/usr/include/lilv-0/lilv/lilv.h"
