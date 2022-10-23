@@ -6,8 +6,7 @@ from midi import Event
 from modes import MidiState
 from tkinter import Button, Entry, Frame, Label, Listbox, Menu, Menubutton, \
     Text, Tk, Toplevel, Widget, BOTH, LEFT, NORMAL, NSEW, RAISED, W
-from typing import Callable, List
-from awb_client import ACTIVE, NONEMPTY, RECORD, STICKY
+from typing import Callable, List, Tuple
 from awb_client import offsetEventTimes, AWBClient, CallableEvent, ACTIVE, \
     NONEMPTY, RECORD, STICKY
 from commands import Program, ProgramCommands, ScriptInterpreter
@@ -405,6 +404,72 @@ class LRState(Enum):
     PLAYING = 1
     IDLE = 2
 
+class LoopMaster:
+    """Provides the start time for a new loop.
+
+    If there are no other loops, this just provides the current absolute time.
+    If there are other loops, it provides the start time of the last iteration
+    of the largest current loop.
+    """
+
+    def __init__(self, client: AWBClient):
+        self.__client = client
+        self.__startTime = None
+        self.__duration = None
+
+    def getStartTime(self) -> Tuple[int, int]:
+        """Returns the start time and offset of a new loop.
+
+        The start time is either now (in ticks) or the start time of the
+        current period of all existing loops.  The offset is the number of
+        ticks from that start time to now.
+        """
+        if self.__startTime is None:
+            self.__startTime = self.__client.getTicks()
+            print(f'xxx setting master start time to {self.__startTime}')
+            return self.__startTime, 0
+        elif self.__duration is None:
+            return (self.__startTime,
+                    self.__client.getTicks() - self.__startTime
+                    )
+        else:
+            # We're currently looping but not recording.
+            #
+            # adjust the current start time to the beginning of the last cycle
+            t = self.__client.getTicks()
+            self.__startTime += \
+                ((t - self.__startTime) // self.__duration) * self.__duration
+            return (self.__startTime, (t - self.__startTime) % self.__duration)
+
+
+    def recordEndTime(self, startTime: int) -> Tuple[int, int]:
+        """Record the end time of a specific loop.
+
+        Returns a tuple of:
+        -   the next time to schedule the beginning of the loop (relative to
+            now)
+        -   the duration of the new loop
+
+        'startTime' is the start time of the new loop.  This method may
+        adjust the duration of the the master loop if the new loop is longer
+        than the master loop.
+        """
+        if self.__duration is None:
+            self.__duration = self.__client.getTicks() - self.__startTime
+            return 0, self.__duration
+        else:
+            t = self.__client.getTicks()
+            d = t - self.__startTime
+            print(f'xxx t = {t}, d = {d}, duration = {self.__duration}')
+            if d > self.__duration:
+                self.__duration = (d // self.__duration + 1) * self.__duration
+            print(
+f'''xxx record end, start time:
+    {self.__duration - (t - startTime)}
+    duration: {self.__duration}''')
+            return self.__duration - (t - startTime), self.__duration
+
+
 class LoopRegister:
     """Stores a set of events as a loop.
 
@@ -413,8 +478,9 @@ class LoopRegister:
     then from idle to playing, which works well for a single button control.
     """
 
-    def __init__(self, client: AWBClient):
+    def __init__(self, client: AWBClient, master: LoopMaster):
         self.__client = client
+        self.__master = master
         self.__events = []
         self.__state = LRState.RECORD
         self.__start : Optional[int] = None
@@ -422,17 +488,33 @@ class LoopRegister:
     def nextState(self):
         def reschedule(client: AWBClient):
             if self.__state == LRState.PLAYING:
+                print(f'xxx rescheduling events at {self.__client.getTicks()}')
                 self.__client.scheduleMidiEvents(self.__events)
+            else:
+                print(f'xxx not rescheduling events')
 
         if self.__state == LRState.RECORD:
-            t = self.__client.getTicks() - self.__start
-            self.__events.append(CallableEvent(t, reschedule))
+            restartTime, duration = self.__master.recordEndTime(self.__start)
+            print(f'xxx adding reschedule event at +{duration}')
+            self.__events.append(CallableEvent(duration, reschedule))
             self.__state = LRState.PLAYING
-            reschedule(self.__events)
+
+            # schedule an event to kick off the first replay loop.  If
+            # restartTime is now just do it without scheduling a CallableEvent.
+            if not restartTime:
+                print(f'xxx restarting loop immediately')
+                reschedule(self.__client)
+            else:
+                print(f'xxx restarting loop in +{restartTime}')
+                self.__client.scheduleMidiEvent(
+                    CallableEvent(restartTime, reschedule)
+                )
         elif self.__state == LRState.PLAYING:
             self.__state = LRState.IDLE
         elif self.__state == LRState.IDLE:
             self.__state = LRState.PLAYING
+            # TODO: need to schedule this for the next period if any loops are
+            # currently playing
             reschedule(self.__events)
 
     def addEvents(self, events):
@@ -443,8 +525,8 @@ class LoopRegister:
         # Record the start time if there is none, otherwise use it to
         # calculate the loop-relative time.
         if self.__start is None:
-            self.__start = self.__client.getTicks()
-            t = 0
+            self.__start, t = self.__master.getStartTime()
+            print(f'xxx getting master start time: {self.__start}, offset = {t}')
         else:
             t = self.__client.getTicks() - self.__start
         self.__events = list(merge(offsetEventTimes(events, t),
@@ -471,15 +553,21 @@ class MidiRegisters(Toplevel):
         self.client = client
         self.__recorder : Optional[EventRecorder] = None
         self.__registers : Dict[str, RecordingInfo] = {}
-        self.__loop : Optional[LoopRegister] = None
+        self.__loopers : List[Optional[LoopRegister]] = [None] * 4
+        self.__recordingLooper : Optional[int] = None
+        self.__master = LoopMaster(client)
         self.frame = Frame(self)
         self.status = Label(self.frame, text=self.STATUS_TEXT)
         self.status.pack()
         self.list = Listbox(self.frame)
         self.list.pack(expand=True, fill=BOTH)
 
-        self.__loopStat = Label(self.frame, text='Loop 1: EMPTY')
-        self.__loopStat.pack()
+        # Create the looper status controls
+        self.__loopStats = []
+        for i in range(4):
+            stat = Label(self.frame, text=f'Loop {i + 1}: EMPTY')
+            self.__loopStats.append(stat)
+            stat.pack()
 
         lower_frame = Frame(self)
         #self.entry = Entry(lower_frame)
@@ -499,21 +587,27 @@ class MidiRegisters(Toplevel):
                     key = self.list.get(sel[0])
                     del self.__registers[key]
                     self.list.delete(sel[0])
-            elif event.keysym == 'F1':
-                if self.__loop:
-                    self.__loop.nextState()
-                    self.__loopStat.configure(
-                        text=f'Loop 1: {self.__loop.state}')
+            elif event.keysym in ('F1', 'F2', 'F3', 'F4'):
+                index = int(event.keysym[1]) - 1
+                looper = self.__loopers[index]
+                if looper:
+                    print(f'xxx forwarding looper at {index}')
+                    looper.nextState()
+                    self.__loopStats[index].configure(
+                        text=f'Loop {index + 1}: {looper.state}')
                 else:
-                    self.__loop = LoopRegister(self.client)
+                    print(f'xxx creating looper at {index}')
+                    self.__loopers[index] = \
+                        LoopRegister(self.client, self.__master)
+                    self.__recordingLooper = index
             return
 
         # play an existing register.
         try:
             events = self.__registers[event.keysym].events
             self.client.scheduleMidiEvents(events)
-            if self.__loop:
-                self.__loop.addEvents(events)
+            if self.__recordingLooper is not None:
+                self.__loopers[self.__recordingLooper].addEvents(events)
             return
         except KeyError:
             pass
