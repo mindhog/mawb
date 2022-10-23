@@ -88,6 +88,9 @@ class CallableEvent(VirtualEvent):
     def __call__(self, client: 'AWBClient'):
         self.__callable(client)
 
+    def __repr__(self):
+        return f'{self.__class__.__name__}({self.time}, {self.__callable})'
+
 def offsetEventTimes(events: 'Iterable[Event]', t: int
                      ) -> Generator[Event, None, None]:
     """Generator that copies 'events' and adds 't' (time in tics) to each one.
