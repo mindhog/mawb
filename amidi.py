@@ -1,10 +1,13 @@
 """ALSA midi wrapper."""
 
-import alsa_midi
+from __future__ import annotations
+
+import alsa_midi # type: ignore (this doesn't work)
 from midi import Event, NoteOn, NoteOff, PitchWheel, ProgramChange, \
     ControlChange, SysContinue, SysEx, SysStart, SysStop
 from select import POLLIN
 from shorthand import Shorthand
+from typing import Generator
 
 ss = Shorthand(alsa_midi, 'snd_seq_')
 ssci = Shorthand(alsa_midi, 'snd_seq_client_info_')
@@ -97,20 +100,29 @@ def makeRawEvent(event):
 class ClientInfo(object):
     """A wrapper for raw midi client info."""
 
-    def __init__(self, rawClient):
-        self.rep = rawClient
-        self.ports = []
+    def __init__(self, seq: Sequencer, client):
+        self.seq = seq
+        self.rep = client
+
+    def __del__(self):
+        ssci.free(self.rep)
 
     @property
     def name(self):
         return ss.client_info_get_name(self.rep)
 
+    def iterPortInfos(self) -> Generator[PortInfo, None, None]:
+        return self.seq._iterPortsForClient(self)
+
 class PortInfo(object):
     """A wrapper for raw midi port info."""
 
-    def __init__(self, rawClient, rawPort):
-        self.client = rawClient
+    def __init__(self, client: ClientInfo, rawPort):
+        self.client = client
         self.rep = rawPort
+
+    def __del__(self):
+        sspi.free(self.rep)
 
     @property
     def name(self):
@@ -130,7 +142,7 @@ class PortInfo(object):
         return addr.client == otherAddr.client and addr.port == otherAddr.port
 
     def __str__(self):
-        return '%s/%s' % (ss.client_info_get_name(self.client), self.name)
+        return '%s/%s' % (self.client.name, self.name)
 
 class Sequencer(object):
     """An ALSA MIDI sequencer."""
@@ -151,9 +163,9 @@ class Sequencer(object):
         ss.close(self.__seq)
 
     def __wrapWithPortInfo(self, portNum, clientId = None):
-        rc, portInfo = ss.port_info_malloc()
+        rc, portInfo = sspi.malloc()
         assert not rc
-        rc, clientInfo = ss.client_info_malloc()
+        rc, clientInfo = ssci.malloc()
         assert not rc
 
         if clientId is None:
@@ -194,26 +206,51 @@ class Sequencer(object):
         assert ss.poll_descriptors(self.__seq, fds.cast(), 1, POLLIN) == 1
         return fds[0].fd
 
-    def _iterPorts(self):
-        """Iterates over the client, port pairs.
-
-        Note that this iterates over the low-level client and ports,
-        iterPortInfos() should be used instead.
-        """
+    def iterClientInfos(self) -> Generator[ClientInfo, None, None]:
+        """Iterates over the set of clients."""
         rc, cinfo = ss.client_info_malloc()
-        assert not rc
-        rc, pinfo = ss.port_info_malloc()
         assert not rc
         ssci.set_client(cinfo, -1)
         while ss.query_next_client(self.__seq, cinfo) >= 0:
-            ss.port_info_set_client(pinfo, ss.client_info_get_client(cinfo))
-            ss.port_info_set_port(pinfo, -1)
-            while ss.query_next_port(self.__seq, pinfo) >= 0:
-                yield cinfo, pinfo
+            lastClient = ssci.get_client(cinfo)
+            yield ClientInfo(self, cinfo)
 
-    def iterPortInfos(self):
-        for client, port in self._iterPorts():
-            yield PortInfo(client, port)
+            # Allocate a new client info, set the id to the id of the last one
+            # so the next query will get the next one.
+            rc, cinfo = ssci.malloc()
+            assert not rc
+            ssci.set_client(cinfo, lastClient)
+
+        # Free memory for the last client, which was never used.
+        ssci.free(cinfo)
+
+    def _iterPortsForClient(
+            self, client: ClientInfo
+    ) -> Generator[PortInfo, None, None]:
+        # Allocate a new port object, set it to the first port.
+        rc, pinfo = sspi.malloc()
+        assert not rc
+        sspi.set_client(pinfo, ssci.get_client(client.rep))
+        sspi.set_port(pinfo, -1)
+        while ss.query_next_port(self.__seq, pinfo) >= 0:
+            lastPort = sspi.get_port(pinfo)
+            yield PortInfo(client, pinfo)
+
+            # Allocate new port info, set its id to the last port so the
+            # next query will get the next one.
+            rc, pinfo = sspi.malloc()
+            assert not rc
+            sspi.set_client(pinfo, ssci.get_client(client.rep))
+            sspi.set_port(pinfo, lastPort)
+
+        # Free memory for last port, which was never used.
+        sspi.free(pinfo)
+
+    def iterPortInfos(self) -> Generator[PortInfo, None, None]:
+        """Iterates over the set of all ports."""
+        for client in self.iterClientInfos():
+            for port in self._iterPortsForClient(client):
+                yield port
 
     def iterSubs(self, port):
         """Iterate over the subscriptions for the port.
@@ -251,13 +288,8 @@ class Sequencer(object):
         """All args are integers."""
         ss.connect_from(self.__seq, port, rmt_client, rmt_port)
 
-    def __createSubscription(self, port1, port2):
-        """Returns a new subscription object for the two ports.
-
-        Args:
-            port1: [PortInfo]
-            port2: [PortInfo]
-        """
+    def __createSubscription(self, port1: PortInfo, port2: PortInfo):
+        """Returns a new subscription object for the two ports."""
         rc, sub = ss.port_subscribe_malloc()
         ss.port_subscribe_set_sender(sub, port1.addr)
         ss.port_subscribe_set_dest(sub, port2.addr)
@@ -322,11 +354,9 @@ class Sequencer(object):
         Returns:
             [PortInfo]
         """
-        client, port = name.split('/')
-        for clt, prt in self._iterPorts():
-            if client == ss.client_info_get_name(clt) == client and \
-               port == ss.port_info_get_name(prt):
-                return PortInfo(clt, prt)
+        for port in self.iterPortInfos():
+            if port.fullName == name:
+                return port
 
         return None
 
