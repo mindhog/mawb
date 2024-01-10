@@ -5,6 +5,9 @@ setup(
         Extension("_alsa_midi", sources = ['alsa_midi.i'],
                   libraries = ['asound'],
                   ),
+        Extension("_alsa_mixer", sources = ['alsa_mixer.i'],
+                  libraries = ['asound'],
+                  ),
         Extension("_lilv", sources = ['lilv.i'],
                   libraries = ['lilv-0'],
                   )
@@ -12,9 +15,11 @@ setup(
     py_modules = [
         'alsa_midi',
         'amidi',
+        'amixer',
+        'awb_client',
         'lilv',
         'midi',
-	'awb_client',
+        'shorthand',
     ],
     install_requires = [
         'typing', # typing-3.6.6
