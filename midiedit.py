@@ -178,6 +178,7 @@ class MidiEditor(Frame):
         toplevel.bind('<space>', self.__toggle_play)
         toplevel.bind('<Left>', self.__left_note)
         toplevel.bind('<Right>', self.__right_note)
+        toplevel.bind('<Home>', self.__set_to_start)
 
         # Render the note and measure lines.
         measure = self.__ppb * self.__sig
@@ -247,6 +248,10 @@ class MidiEditor(Frame):
         self.__audio.set_pos(
             (self.__audio.get_pos() // self.__ppb + 1) * self.__ppb
         )
+
+    def __set_to_start(self, event: Event):
+        """Move the play-head to the beginning of the span."""
+        self.__audio.set_pos(0)
 
     def __process_queue(self) -> None:
         """Process all events on the queue.
