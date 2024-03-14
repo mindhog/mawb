@@ -1,6 +1,9 @@
 """Midi handlers.  Attach these to AWBClient's dispatchEvent."""
 
 import midi
+from typing import Callable, TypeAlias
+
+MidiHandler: TypeAlias = Callable['AWBClient', midi.Event]
 
 class PassThrough(object):
     """Forwards all events to another midi port."""
@@ -110,3 +113,16 @@ class ControlMap(object):
 
         elif self.nonControlHandler:
             self.nonControlHandler(client, event)
+
+class EventLogger(MidiHandler):
+    """Logs (prints) a midi event and optionally sends it to the next handler
+    if there is one.
+    """
+
+    def __init__(self, next: MidiHandler | None):
+        self.next = next
+
+    def __call__(self, client, event):
+        print(event)
+        if self.next:
+            self.next(client, event)
