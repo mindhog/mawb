@@ -28,26 +28,31 @@ class SubState(object):
 
 class MidiState(SubState):
 
-    def __init__(self, portName, bank, program):
+    def __init__(self, portName, bank, program, channel=0):
         assert isinstance(portName, str)
         self.portName = portName
         self.bank = bank
         self.program = program
+        self.channel = channel
 
     def __eq__(self, other):
         return self is other or \
+                isinstance(other, MidiState) and \
                 self.portName == other.portName and \
                 self.bank == other.bank and \
-                self.program == other.program
+                self.program == other.program and \
+                self.channel == other.channel
 
     def clone(self):
-        return MidiState(self.portName, self.bank, self.program)
+        return MidiState(self.portName, self.bank, self.program, self.channel)
 
     def activate(self, client):
         port = client.seq.getPort(self.portName)
-        client.seq.sendEvent(ControlChange(0, 0, 0, self.bank >> 7), port)
-        client.seq.sendEvent(ControlChange(0, 0, 32, self.bank & 127), port)
-        client.seq.sendEvent(ProgramChange(0, 0, self.program), port)
+        client.seq.sendEvent(ControlChange(0, self.channel, 0, self.bank >> 7),
+                             port)
+        client.seq.sendEvent(ControlChange(0, self.channel, 32, self.bank & 127),
+                             port)
+        client.seq.sendEvent(ProgramChange(0, self.channel, self.program), port)
 
 class Route(object):
     __metaclass__ = ABCMeta
