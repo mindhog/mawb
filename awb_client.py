@@ -227,7 +227,7 @@ class AWBClient(object):
         if isinstance(src, amidi.PortInfo): return src
         srcPort = self.seq.getPort(src)
         if not srcPort:
-            print('Port %s not defined' % src)
+            raise Exception(f'Port {src} not defined')
         return srcPort
 
     def midiConnect(self, src, dst):
@@ -239,7 +239,6 @@ class AWBClient(object):
         """
         srcPort = self.__convertToPortInfo(src)
         dstPort = self.__convertToPortInfo(dst)
-        if not srcPort or not dstPort: return
         self.seq.connect(srcPort, dstPort)
 
     def waitForJack(self, portName, timeout=3.0):
@@ -482,20 +481,6 @@ class AWBClient(object):
                 if self.recording.get(channel):
                     self.endRecord(channel)
                     closedClean = True
-
-    def handleMidiInput(self):
-        handle = self.seq.getPollHandle()
-        while True:
-            rdx, wrx, erx = select.select(
-                [handle, self.midiInputControl.read], [], []
-            )
-            if self.midiInputControl.read in rdx:
-                break
-
-            while self.seq.hasEvent():
-                event = self.seq.getEvent()
-                if self.dispatchEvent:
-                    self.dispatchEvent(self, event)
 
     def getTicks(self, seconds: Optional[float] = None) -> int:
         """Returns the number of ticks corresponding to 'seconds', or since
