@@ -174,7 +174,7 @@ class Sequencer(object):
         else:
             ss.get_any_port_info(self.__seq, clientId, portNum, portInfo)
             ss.get_any_client_info(self.__seq, clientId, clientInfo)
-        return PortInfo(clientInfo, portInfo)
+        return PortInfo(ClientInfo(self, clientInfo), portInfo)
 
     def createInputPort(self, name):
         return self.__wrapWithPortInfo(
@@ -272,7 +272,7 @@ class Sequencer(object):
             rc, portInfo = ss.port_info_malloc()
             ss.get_any_port_info(self.__seq, addr.client, addr.port, portInfo)
 
-            yield PortInfo(clientInfo, portInfo)
+            yield PortInfo(ClientInfo(self, clientInfo), portInfo)
 
             index += 1
             ss.query_subscribe_set_index(subs, index)
