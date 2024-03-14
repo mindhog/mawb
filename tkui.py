@@ -665,7 +665,7 @@ class MainWin(Tk):
         label.grid(row = nextRow(), column = 0)
 
         self.recordMode = Button(self.frame, text = 'P',
-                                 command = lambda e: self.toggleRecord())
+                                 command = lambda: self.toggleRecord())
         modeRow = nextRow()
         self.recordMode.grid(row = modeRow, column = 0, sticky = W)
         self.status = Label(self.frame, text = 'Idle')
@@ -735,7 +735,7 @@ class MainWin(Tk):
     def terminate(self, event):
         self.destroy()
 
-    def toggleRecord(self, event):
+    def toggleRecord(self, event=None):
         self.client.recordEnabled = not self.client.recordEnabled
         self.recordMode.configure(text = self.client.recordEnabled and 'R' or
                                   'P'
